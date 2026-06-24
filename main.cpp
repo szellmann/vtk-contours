@@ -28,6 +28,9 @@
 #include <vtkShaderProperty.h>
 #include <vtkPlaneSource.h>
 #include <vtkTexture.h>
+#include <vtkOpenGLRenderWindow.h>
+#include <vtktextureobject.h>
+#include <vtkOpenGLTexture.h>
 // vktmlib
 #include <vtkmlib/ArrayConverters.h>
 #include <vtkmlib/ImageDataConverter.h>
@@ -45,25 +48,31 @@ inline std::vector<T> toStdVector(const viskores::cont::ArrayHandle<T> &array) {
   return vec;
 }
 
-inline vtkSmartPointer<vtkTexture> toLinearTexture(const std::vector<int64_t> &vec) {
-  auto arr = vtkSmartPointer<vtkIntArray>::New();
-  arr->SetNumberOfComponents(1);
-  arr->SetNumberOfValues(vec.size());
-  for (size_t i=0; i<vec.size(); ++i) {
-    arr->SetValue(i, (int32_t)vec[i]);
-  }
+inline vtkSmartPointer<vtkOpenGLTexture> toTexture(
+    const std::vector<int64_t> &vec, vtkOpenGLRenderWindow *glWin)
+{
+  // convert to float32: GL_R32I doesn't work on Mac. Robust up to 2^24...
+  // use texture objects: vtkTexture maps the values to [0:255] and
+  // that can't be turne off...
+  vtkNew<vtkTextureObject> to;
 
-  auto i1D = vtkSmartPointer<vtkImageData>::New();
-  i1D->SetDimensions(vec.size(), 1, 1);
-  i1D->GetPointData()->SetScalars(arr);
+  to->SetContext(glWin);
+  to->SetMinificationFilter(vtkTextureObject::Nearest);
+  to->SetMagnificationFilter(vtkTextureObject::Nearest);
 
-  auto tex = vtkSmartPointer<vtkTexture>::New();
-  tex->SetInputData(i1D);
+  auto divUp = [](int a, int b) { return (a+b-1)/b; };
+  int width = 4096; // TODO: find out platform texture dimensions
+  int height = divUp(vec.size(),width);
 
-  tex->InterpolateOff();
-  tex->SetColorModeToDirectScalars();
+  std::vector<float> v32f(width*size_t(height));
+  for (size_t i=0; i<vec.size(); ++i) v32f[i] = vec[i];
 
-  return tex;
+  bool uploaded = to->Create2DFromRaw(width, height, 1, VTK_FLOAT, v32f.data());
+
+  vtkSmartPointer<vtkOpenGLTexture> gl = vtkSmartPointer<vtkOpenGLTexture>::New();
+  gl->SetTextureObject(to);
+
+  return gl;
 }
 
 int main(int argc, char **argv)
@@ -102,7 +111,7 @@ int main(int argc, char **argv)
   colorMapped->SetOutputFormatToRGBA();
   colorMapped->Update();
 
-  // serial contour tree:
+  // serial contour tree to pass into FS:
   std::vector<int64_t> nodes, arcs, superparents, superarcs, supernodes, hyperparents,
       whenTransferred, hypernodes, hyperarcs;
 
@@ -171,24 +180,74 @@ int main(int argc, char **argv)
   actor->SetMapper(mapper);
   actor->SetTexture(texture);
 
+  auto renderer = vtkSmartPointer<vtkRenderer>::New();
+  auto renderWindow = vtkSmartPointer<vtkRenderWindow>::New();
+
+  // render once to enforce context creation:
+  renderWindow->Render();
+  renderWindow->MakeCurrent();
+  auto* glWin = vtkOpenGLRenderWindow::SafeDownCast(renderWindow);
+
   vtkShaderProperty* shaderProperty = actor->GetShaderProperty();
 
-  actor->GetProperty()->SetTexture("nodes", toLinearTexture(nodes));
+  actor->GetProperty()->SetTexture("nodes", toTexture(nodes,glWin));
+  actor->GetProperty()->SetTexture("arcs", toTexture(arcs,glWin));
+  actor->GetProperty()->SetTexture("superparents", toTexture(superparents,glWin));
+  actor->GetProperty()->SetTexture("superarcs", toTexture(superarcs,glWin));
+  actor->GetProperty()->SetTexture("supernodes", toTexture(supernodes,glWin));
+  actor->GetProperty()->SetTexture("hyperparents", toTexture(hyperparents,glWin));
+  actor->GetProperty()->SetTexture("whenTransferred", toTexture(whenTransferred,glWin));
+  actor->GetProperty()->SetTexture("hyperarcs", toTexture(hyperarcs,glWin));
 
   shaderProperty->SetFragmentShaderCode(R"(
 //VTK::System::Dec
 //VTK::Output::Dec
 in vec2 tcoordVCVSOutput;
 uniform sampler2D actortexture;
-uniform isampler2D nodes;
+uniform sampler2D nodes;
+uniform sampler2D arcs;
+uniform sampler2D superparents;
+uniform sampler2D superarcs;
+uniform sampler2D supernodes;
+uniform sampler2D hyperparents;
+uniform sampler2D whenTransferred;
+uniform sampler2D hyperarcs;
+
+vec4 access(sampler2D samp, int index) {
+  int i=index%4096;
+  int j=index/4096;
+  return texelFetch(samp, ivec2(i,j), 0);
+}
+
 void main() {
   vec4 texColor = texture(actortexture, tcoordVCVSOutput);
+
+  // some tests with known data
+
+#if 1
+  vec4 n = access(nodes, 4097);
+  if (n.x == 188526)
+    gl_FragData[0] = vec4(1.f-texColor.xyz, 1.f);
+  else
+    gl_FragData[0] = vec4(0,1,0,1);
+
+  return;
+#endif
+
+#if 0
+  vec4 sa = access(superarcs, 300);
+  if (sa.x == 301)
+    gl_FragData[0] = vec4(1.f-texColor.xyz, 1.f);
+  else
+    gl_FragData[0] = vec4(0,1,0,1);
+
+  return;
+#endif
+
   gl_FragData[0] = texColor;
 }
       )");
 
-  auto renderer = vtkSmartPointer<vtkRenderer>::New();
-  auto renderWindow = vtkSmartPointer<vtkRenderWindow>::New();
   renderWindow->AddRenderer(renderer);
   renderWindow->SetWindowName("Viewer");
 
