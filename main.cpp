@@ -29,7 +29,7 @@
 #include <vtkPlaneSource.h>
 #include <vtkTexture.h>
 #include <vtkOpenGLRenderWindow.h>
-#include <vtktextureobject.h>
+#include <vtkTextureObject.h>
 #include <vtkOpenGLTexture.h>
 // vktmlib
 #include <vtkmlib/ArrayConverters.h>
