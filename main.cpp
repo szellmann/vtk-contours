@@ -139,25 +139,15 @@ int main(int argc, char **argv)
     //contourTree.PrintContent();
     //std::cout << contourTree.PrintArraySizes() << '\n';
 
-    viskores::cont::ArrayHandle<viskores::Int64> nodesArray = contourTree.Nodes;
-    viskores::cont::ArrayHandle<viskores::Int64> arcsArray = contourTree.Arcs;
-    viskores::cont::ArrayHandle<viskores::Int64> superparentsArray = contourTree.Superparents;
-    viskores::cont::ArrayHandle<viskores::Int64> superarcsArray = contourTree.Superarcs;
-    viskores::cont::ArrayHandle<viskores::Int64> supernodesArray = contourTree.Supernodes;
-    viskores::cont::ArrayHandle<viskores::Int64> hyperparentsArray = contourTree.Hyperparents;
-    viskores::cont::ArrayHandle<viskores::Int64> whenTransferredArray = contourTree.WhenTransferred;
-    viskores::cont::ArrayHandle<viskores::Int64> hypernodesArray = contourTree.Hypernodes;
-    viskores::cont::ArrayHandle<viskores::Int64> hyperarcsArray = contourTree.Hyperarcs;
-
-    nodes = toStdVector(nodesArray);
-    arcs = toStdVector(arcsArray);
-    superparents = toStdVector(superparentsArray);
-    superarcs = toStdVector(superarcsArray);
-    supernodes = toStdVector(supernodesArray);
-    hyperparents = toStdVector(hyperparentsArray);
-    whenTransferred = toStdVector(whenTransferredArray);
-    hypernodes = toStdVector(hypernodesArray);
-    hyperarcs = toStdVector(hyperarcsArray);
+    nodes = toStdVector(contourTree.Nodes);
+    arcs = toStdVector(contourTree.Arcs);
+    superparents = toStdVector(contourTree.Superparents);
+    superarcs = toStdVector(contourTree.Superarcs);
+    supernodes = toStdVector(contourTree.Supernodes);
+    hyperparents = toStdVector(contourTree.Hyperparents);
+    whenTransferred = toStdVector(contourTree.WhenTransferred);
+    hypernodes = toStdVector(contourTree.Hypernodes);
+    hyperarcs = toStdVector(contourTree.Hyperarcs);
   } catch (const viskores::cont::Error& error) {
     std::cerr << "[Viskores]: " << error.GetMessage() << std::endl;
     return EXIT_FAILURE;
