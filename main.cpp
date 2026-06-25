@@ -197,6 +197,7 @@ int main(int argc, char **argv)
   g_appState.renderer = renderer;
 
   auto renderWindow = vtkSmartPointer<vtkRenderWindow>::New();
+  renderWindow->SetSize(1024,1024);
 
 
   // render once to enforce context creation:
@@ -229,23 +230,34 @@ uniform usampler2D hyperparents;
 uniform usampler2D whenTransferred;
 uniform usampler2D hyperarcs;
 
-struct ui64_t {
+// 64-bit ID type
+struct ID_t {
   uint lo, hi;
 };
+
+// 32-bit index from 64-bit ID
+uint getIndex(ID_t id) {
+  return id.lo;
+}
+
+// upper 5 bits contain flags
+uint getFlags(ID_t id) {
+  return (id.hi >> 27u) & 0x1Fu;
+}
 
 struct ui64x2_t {
   uint lo[2], hi[2];
 };
 
-ui64_t access(usampler2D samp, int index) {
+ID_t access(usampler2D samp, int index) {
   int i=index%4096;
   int j=index/4096;
   int k=index%2;
   uvec4 ui4 = texelFetch(samp, ivec2(i,j), 0);
   if (index%2==0)
-    return ui64_t(ui4.x,ui4.z);
+    return ID_t(ui4.x,ui4.z);
   else
-    return ui64_t(ui4.y,ui4.w);
+    return ID_t(ui4.y,ui4.w);
 }
 
 void main() {
@@ -254,7 +266,7 @@ void main() {
   // some tests with known data (from vanc.txt)
 
 #if 1
-  ui64_t n = access(nodes, 0);
+  ID_t n = access(nodes, 0);
   if (n.lo == 178u && n.hi == 0u)
     gl_FragData[0] = vec4(1.f-texColor.xyz, 1.f);
   else
