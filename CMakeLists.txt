@@ -37,3 +37,6 @@ vtk_module_autoinit(
   TARGETS ${PROJECT_NAME}
   MODULES ${VTK_LIBRARIES}
 )
+
+set(SHADER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.")
+target_compile_definitions(${PROJECT_NAME} PRIVATE SHADER_PATH="${SHADER_DIR}")

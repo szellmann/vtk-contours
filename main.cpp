@@ -218,77 +218,10 @@ int main(int argc, char **argv)
   actor->GetProperty()->SetTexture("whenTransferred", toTexture(whenTransferred,glWin));
   actor->GetProperty()->SetTexture("hyperarcs", toTexture(hyperarcs,glWin));
 
-  shaderProperty->SetFragmentShaderCode(R"(
-//VTK::System::Dec
-//VTK::Output::Dec
-in vec2 tcoordVCVSOutput;
-uniform sampler2D actortexture;
-uniform usampler2D nodes;
-uniform usampler2D arcs;
-uniform usampler2D superparents;
-uniform usampler2D superarcs;
-uniform usampler2D supernodes;
-uniform usampler2D hyperparents;
-uniform usampler2D whenTransferred;
-uniform usampler2D hyperarcs;
-
-vec3 randomColor(uint idx) {
-  uint r = uint(int(idx)*13*17 + 0x234235);
-  uint g = uint(int(idx)*7*3*5 + 0x773477);
-  uint b = uint(int(idx)*11*19 + 0x223766);
-  return vec3((r&255u)/255.f,
-              (g&255u)/255.f,
-              (b&255u)/255.f);
-}
-
-// 64-bit ID type
-struct ID_t {
-  uint lo, hi;
-};
-
-// 32-bit index from 64-bit ID
-uint getIndex(ID_t id) {
-  return id.lo;
-}
-
-// upper 5 bits contain flags
-uint getFlags(ID_t id) {
-  return (id.hi >> 27u) & 0x1Fu;
-}
-
-struct ui64x2_t {
-  uint lo[2], hi[2];
-};
-
-ID_t access(usampler2D samp, int index) {
-  int i=index%4096;
-  int j=index/4096;
-  int k=index%2;
-  uvec4 ui4 = texelFetch(samp, ivec2(i,j), 0);
-  if (index%2==0)
-    return ID_t(ui4.x,ui4.z);
-  else
-    return ID_t(ui4.y,ui4.w);
-}
-
-void main() {
-  vec4 texColor = texture(actortexture, tcoordVCVSOutput);
-
-  // some tests with known data (from vanc.txt)
-
-#if 1
-  ID_t n = access(nodes, 0);
-  if (n.lo == 178u && n.hi == 0u)
-    gl_FragData[0] = vec4(1.f-texColor.xyz, 1.f);
-  else
-    gl_FragData[0] = vec4(0,1,0,1);
-
-  return;
-#endif
-
-  gl_FragData[0] = texColor;
-}
-      )");
+  std::ifstream shaderFile(std::string(SHADER_PATH)+"/segmentation.glsl");
+  std::string shaderSource((std::istreambuf_iterator<char>(shaderFile)),
+                            std::istreambuf_iterator<char>());
+  shaderProperty->SetFragmentShaderCode(shaderSource.c_str());
 
   renderWindow->AddRenderer(renderer);
   renderWindow->SetWindowName("Viewer");
@@ -375,9 +308,31 @@ void main() {
           #endif
         }
       }
-  });
+    });
   onClick->SetClientData(&g_appState);
   interactor->AddObserver(vtkCommand::LeftButtonPressEvent , onClick);
+
+  // key 's' hot-reloads the shader:
+  vtkNew<vtkCallbackCommand> onKey;
+  onKey->SetCallback(
+    [](vtkObject *caller, long unsigned int eventID, void *clientData, void *callData) {
+      auto *interactor = vtkRenderWindowInteractor::SafeDownCast(caller);
+      if (!interactor) return;
+      std::string key = interactor->GetKeySym();
+      if (key == "s") {
+        std::ifstream shaderFile(std::string(SHADER_PATH)+"/segmentation.glsl");
+        std::string shaderSource((std::istreambuf_iterator<char>(shaderFile)),
+            std::istreambuf_iterator<char>());
+
+        auto *shaderProperty = (vtkShaderProperty *)clientData;
+        if (!shaderProperty) return;
+
+        std::cout << "Reloading shader source!\n";
+        shaderProperty->SetFragmentShaderCode(shaderSource.c_str());
+      }
+    });
+  onKey->SetClientData(shaderProperty);
+  interactor->AddObserver(vtkCommand::KeyPressEvent, onKey);
 
   renderer->AddActor(actor);
   vtkNew<vtkNamedColors> colors;
