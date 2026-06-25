@@ -31,6 +31,8 @@
 #include <vtkOpenGLRenderWindow.h>
 #include <vtkTextureObject.h>
 #include <vtkOpenGLTexture.h>
+#include <vtkCallbackCommand.h>
+#include <vtkCellPicker.h>
 // vktmlib
 #include <vtkmlib/ArrayConverters.h>
 #include <vtkmlib/ImageDataConverter.h>
@@ -51,9 +53,8 @@ inline std::vector<T> toStdVector(const viskores::cont::ArrayHandle<T> &array) {
 inline vtkSmartPointer<vtkOpenGLTexture> toTexture(
     const std::vector<int64_t> &vec, vtkOpenGLRenderWindow *glWin)
 {
-  // convert to float32: GL_R32I doesn't work on Mac. Robust up to 2^24...
-  // use texture objects: vtkTexture maps the values to [0:255] and
-  // that can't be turne off...
+  // why use texture objects: vtkTexture maps the values to [0:255] and
+  // that can't be turned off...
   vtkNew<vtkTextureObject> to;
 
   to->SetContext(glWin);
@@ -64,16 +65,36 @@ inline vtkSmartPointer<vtkOpenGLTexture> toTexture(
   int width = 4096; // TODO: find out platform texture dimensions
   int height = divUp(vec.size(),width);
 
-  std::vector<float> v32f(width*size_t(height));
-  for (size_t i=0; i<vec.size(); ++i) v32f[i] = vec[i];
+  struct ui64x2_t {
+    unsigned lo[2], hi[2];
+  };
+  std::vector<ui64x2_t> ui64x2(width*size_t(height)/2);
+  for (size_t i=0; i<vec.size(); ++i) {
+    ui64x2[i/2].lo[i%2] = ((unsigned)vec[i])&0xFFFFFFFFul;
+    ui64x2[i/2].hi[i%2] = ((unsigned)(vec[i]>>32))&0xFFFFFFFFul;
+  }
 
-  bool uploaded = to->Create2DFromRaw(width, height, 1, VTK_FLOAT, v32f.data());
+  #define GL_RGBA_INTEGER 0x8D99 // TODO!
+  #define GL_UNSIGNED_INT 0x1405 // TODO!!
+  #define GL_NEAREST      0x2600 // TODO!!!
+  #define GL_RGBA32UI     0x8D70 // TODO!!!!
+  to->SetFormat(GL_RGBA_INTEGER);
+  to->SetDataType(GL_UNSIGNED_INT);
+  to->SetInternalFormat(GL_RGBA32UI);
+  to->SetMinificationFilter(GL_NEAREST);
+  to->SetMagnificationFilter(GL_NEAREST);
+  bool uploaded = to->Create2DFromRaw(width, height, 4, VTK_UNSIGNED_INT, ui64x2.data());
 
   vtkSmartPointer<vtkOpenGLTexture> gl = vtkSmartPointer<vtkOpenGLTexture>::New();
   gl->SetTextureObject(to);
 
   return gl;
 }
+
+struct AppState {
+  vtkActor *actor{nullptr};
+  vtkRenderer *renderer{nullptr};
+} g_appState;
 
 int main(int argc, char **argv)
 {
@@ -167,11 +188,16 @@ int main(int argc, char **argv)
   texture->InterpolateOn(); 
 
   auto actor = vtkSmartPointer<vtkActor>::New();
+  g_appState.actor = actor;
+  actor->PickableOn();
   actor->SetMapper(mapper);
   actor->SetTexture(texture);
 
   auto renderer = vtkSmartPointer<vtkRenderer>::New();
+  g_appState.renderer = renderer;
+
   auto renderWindow = vtkSmartPointer<vtkRenderWindow>::New();
+
 
   // render once to enforce context creation:
   renderWindow->Render();
@@ -194,39 +220,42 @@ int main(int argc, char **argv)
 //VTK::Output::Dec
 in vec2 tcoordVCVSOutput;
 uniform sampler2D actortexture;
-uniform sampler2D nodes;
-uniform sampler2D arcs;
-uniform sampler2D superparents;
-uniform sampler2D superarcs;
-uniform sampler2D supernodes;
-uniform sampler2D hyperparents;
-uniform sampler2D whenTransferred;
-uniform sampler2D hyperarcs;
+uniform usampler2D nodes;
+uniform usampler2D arcs;
+uniform usampler2D superparents;
+uniform usampler2D superarcs;
+uniform usampler2D supernodes;
+uniform usampler2D hyperparents;
+uniform usampler2D whenTransferred;
+uniform usampler2D hyperarcs;
 
-vec4 access(sampler2D samp, int index) {
+struct ui64_t {
+  uint lo, hi;
+};
+
+struct ui64x2_t {
+  uint lo[2], hi[2];
+};
+
+ui64_t access(usampler2D samp, int index) {
   int i=index%4096;
   int j=index/4096;
-  return texelFetch(samp, ivec2(i,j), 0);
+  int k=index%2;
+  uvec4 ui4 = texelFetch(samp, ivec2(i,j), 0);
+  if (index%2==0)
+    return ui64_t(ui4.x,ui4.z);
+  else
+    return ui64_t(ui4.y,ui4.w);
 }
 
 void main() {
   vec4 texColor = texture(actortexture, tcoordVCVSOutput);
 
-  // some tests with known data
+  // some tests with known data (from vanc.txt)
 
 #if 1
-  vec4 n = access(nodes, 4097);
-  if (n.x == 188526)
-    gl_FragData[0] = vec4(1.f-texColor.xyz, 1.f);
-  else
-    gl_FragData[0] = vec4(0,1,0,1);
-
-  return;
-#endif
-
-#if 0
-  vec4 sa = access(superarcs, 300);
-  if (sa.x == 301)
+  ui64_t n = access(nodes, 0);
+  if (n.lo == 178u && n.hi == 0u)
     gl_FragData[0] = vec4(1.f-texColor.xyz, 1.f);
   else
     gl_FragData[0] = vec4(0,1,0,1);
@@ -246,6 +275,31 @@ void main() {
 
   auto style = vtkSmartPointer<vtkInteractorStyleImage>::New();
   interactor->SetInteractorStyle(style);
+
+  vtkNew<vtkCallbackCommand> onClick;
+  onClick->SetCallback(
+    [](vtkObject *caller, long unsigned int eventID, void *clientData, void *callData) {
+      auto *iren = dynamic_cast<vtkRenderWindowInteractor *>(caller);
+      if (!iren) return;
+      auto *appState = (AppState *)clientData;
+      if (!appState) return;
+
+      int *pos = iren->GetEventPosition();
+
+      vtkNew<vtkCellPicker> cellPicker;
+
+      if (cellPicker->Pick(pos[0], pos[1], 0, appState->renderer)) {
+        vtkActor *hitActor = cellPicker->GetActor();
+        if (hitActor) {
+          vtkIdType cellId = cellPicker->GetCellId();
+          vtkIdType pointId = cellPicker->GetPointId();
+          // parametric coordinates of the plane we picked:
+          double *uvw = cellPicker->GetPCoords();
+        }
+      }
+  });
+  onClick->SetClientData(&g_appState);
+  interactor->AddObserver(vtkCommand::LeftButtonPressEvent , onClick);
 
   renderer->AddActor(actor);
   vtkNew<vtkNamedColors> colors;
