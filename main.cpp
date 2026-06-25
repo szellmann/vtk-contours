@@ -33,12 +33,21 @@
 #include <vtkOpenGLTexture.h>
 #include <vtkCallbackCommand.h>
 #include <vtkCellPicker.h>
+#include <vtkUniforms.h>
 // vktmlib
 #include <vtkmlib/ArrayConverters.h>
 #include <vtkmlib/ImageDataConverter.h>
 // viskores
 #include <viskores/filter/scalar_topology/ContourTreeUniformAugmented.h>
 #include <viskores/cont/Initialize.h>
+
+#define GL_RGBA_INTEGER 0x8D99 // TODO!
+#define GL_UNSIGNED_INT 0x1405 // TODO!!
+//#define GL_NEAREST      0x2600 // TODO!!!
+#define GL_RGBA32UI     0x8D70 // TODO!!!!
+#define GL_RGBA         0x1908
+#define GL_RGBA32F      0x8814
+#define GL_FLOAT        0x1406
 
 template<typename T>
 inline std::vector<T> toStdVector(const viskores::cont::ArrayHandle<T> &array) {
@@ -50,7 +59,7 @@ inline std::vector<T> toStdVector(const viskores::cont::ArrayHandle<T> &array) {
   return vec;
 }
 
-inline vtkSmartPointer<vtkOpenGLTexture> toTexture(
+inline vtkSmartPointer<vtkOpenGLTexture> toTextureUI(
     const std::vector<int64_t> &vec, vtkOpenGLRenderWindow *glWin)
 {
   // why use texture objects: vtkTexture maps the values to [0:255] and
@@ -68,22 +77,39 @@ inline vtkSmartPointer<vtkOpenGLTexture> toTexture(
   struct ui64x2_t {
     unsigned lo[2], hi[2];
   };
-  std::vector<ui64x2_t> ui64x2(width*size_t(height)/2);
+  std::vector<ui64x2_t> ui64x2(width*size_t(height));
   for (size_t i=0; i<vec.size(); ++i) {
     ui64x2[i/2].lo[i%2] = ((unsigned)vec[i])&0xFFFFFFFFul;
     ui64x2[i/2].hi[i%2] = ((unsigned)(vec[i]>>32))&0xFFFFFFFFul;
   }
 
-  #define GL_RGBA_INTEGER 0x8D99 // TODO!
-  #define GL_UNSIGNED_INT 0x1405 // TODO!!
-  #define GL_NEAREST      0x2600 // TODO!!!
-  #define GL_RGBA32UI     0x8D70 // TODO!!!!
   to->SetFormat(GL_RGBA_INTEGER);
   to->SetDataType(GL_UNSIGNED_INT);
   to->SetInternalFormat(GL_RGBA32UI);
-  to->SetMinificationFilter(GL_NEAREST);
-  to->SetMagnificationFilter(GL_NEAREST);
   bool uploaded = to->Create2DFromRaw(width, height, 4, VTK_UNSIGNED_INT, ui64x2.data());
+
+  vtkSmartPointer<vtkOpenGLTexture> gl = vtkSmartPointer<vtkOpenGLTexture>::New();
+  gl->SetTextureObject(to);
+
+  return gl;
+}
+
+inline vtkSmartPointer<vtkOpenGLTexture> toTextureF(
+    const std::vector<float> &vec, vtkOpenGLRenderWindow *glWin)
+{
+  // why use texture objects: vtkTexture maps the values to [0:255] and
+  // that can't be turned off...
+  vtkNew<vtkTextureObject> to;
+
+  to->SetContext(glWin);
+  to->SetMinificationFilter(vtkTextureObject::Nearest);
+  to->SetMagnificationFilter(vtkTextureObject::Nearest);
+
+  auto divUp = [](int a, int b) { return (a+b-1)/b; };
+  int width = 4096; // TODO: find out platform texture dimensions
+  int height = divUp(vec.size(),width);
+
+  bool uploaded = to->Create2DFromRaw(width, height, 1, VTK_FLOAT, (float *)vec.data());
 
   vtkSmartPointer<vtkOpenGLTexture> gl = vtkSmartPointer<vtkOpenGLTexture>::New();
   gl->SetTextureObject(to);
@@ -123,6 +149,12 @@ int main(int argc, char **argv)
   std::cout << "Input spacing " << spacing[0] << ',' << spacing[1] << ',' << spacing[2] << '\n';
   std::cout << "Input origin " << origin[0] << ',' << origin[1] << ',' << origin[2] << '\n';
   std::cout << "Input range " << range[0] << ',' << range[1] << '\n';
+
+  // linear data array
+  std::vector<float> data;
+  for (vtkIdType i=0; i<imgData->GetNumberOfPoints(); ++i) {
+    data.push_back((float)scalars->GetTuple1(i));
+  }
 
   auto lut = vtkSmartPointer<vtkLookupTable>::New();
   lut->SetTableRange(range[0], range[1]);
@@ -208,15 +240,20 @@ int main(int argc, char **argv)
   auto* glWin = vtkOpenGLRenderWindow::SafeDownCast(renderWindow);
 
   vtkShaderProperty* shaderProperty = actor->GetShaderProperty();
+  vtkUniforms *uniforms = shaderProperty->GetFragmentCustomUniforms();
 
-  actor->GetProperty()->SetTexture("nodes", toTexture(nodes,glWin));
-  actor->GetProperty()->SetTexture("arcs", toTexture(arcs,glWin));
-  actor->GetProperty()->SetTexture("superparents", toTexture(superparents,glWin));
-  actor->GetProperty()->SetTexture("superarcs", toTexture(superarcs,glWin));
-  actor->GetProperty()->SetTexture("supernodes", toTexture(supernodes,glWin));
-  actor->GetProperty()->SetTexture("hyperparents", toTexture(hyperparents,glWin));
-  actor->GetProperty()->SetTexture("whenTransferred", toTexture(whenTransferred,glWin));
-  actor->GetProperty()->SetTexture("hyperarcs", toTexture(hyperarcs,glWin));
+  // upload data set
+  uniforms->SetUniform2i("dims", dims);
+  actor->GetProperty()->SetTexture("data", toTextureF(data,glWin));
+  // upload contour tree
+  actor->GetProperty()->SetTexture("nodes", toTextureUI(nodes,glWin));
+  actor->GetProperty()->SetTexture("arcs", toTextureUI(arcs,glWin));
+  actor->GetProperty()->SetTexture("superparents", toTextureUI(superparents,glWin));
+  actor->GetProperty()->SetTexture("superarcs", toTextureUI(superarcs,glWin));
+  actor->GetProperty()->SetTexture("supernodes", toTextureUI(supernodes,glWin));
+  actor->GetProperty()->SetTexture("hyperparents", toTextureUI(hyperparents,glWin));
+  actor->GetProperty()->SetTexture("whenTransferred", toTextureUI(whenTransferred,glWin));
+  actor->GetProperty()->SetTexture("hyperarcs", toTextureUI(hyperarcs,glWin));
 
   std::ifstream shaderFile(std::string(SHADER_PATH)+"/segmentation.glsl");
   std::string shaderSource((std::istreambuf_iterator<char>(shaderFile)),
