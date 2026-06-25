@@ -94,6 +94,7 @@ inline vtkSmartPointer<vtkOpenGLTexture> toTexture(
 struct AppState {
   vtkActor *actor{nullptr};
   vtkRenderer *renderer{nullptr};
+  vtkImageData *imgData{nullptr};
 } g_appState;
 
 int main(int argc, char **argv)
@@ -107,6 +108,7 @@ int main(int argc, char **argv)
 
   vtkImageData *imgData = reader->GetOutput();
   vtkDataArray* scalars = imgData->GetPointData()->GetScalars();
+  g_appState.imgData = imgData;
 
   int dims[3];
   double spacing[3];
@@ -230,6 +232,15 @@ uniform usampler2D hyperparents;
 uniform usampler2D whenTransferred;
 uniform usampler2D hyperarcs;
 
+vec3 randomColor(uint idx) {
+  uint r = uint(int(idx)*13*17 + 0x234235);
+  uint g = uint(int(idx)*7*3*5 + 0x773477);
+  uint b = uint(int(idx)*11*19 + 0x223766);
+  return vec3((r&255u)/255.f,
+              (g&255u)/255.f,
+              (b&255u)/255.f);
+}
+
 // 64-bit ID type
 struct ID_t {
   uint lo, hi;
@@ -300,13 +311,68 @@ void main() {
 
       vtkNew<vtkCellPicker> cellPicker;
 
+      // for now use the picking code primarily for debugging
       if (cellPicker->Pick(pos[0], pos[1], 0, appState->renderer)) {
         vtkActor *hitActor = cellPicker->GetActor();
         if (hitActor) {
           vtkIdType cellId = cellPicker->GetCellId();
           vtkIdType pointId = cellPicker->GetPointId();
-          // parametric coordinates of the plane we picked:
+
+          // convert from parametric picking coordinates to image space:
+          int dims[3];
+          appState->imgData->GetDimensions(dims);
           double *uvw = cellPicker->GetPCoords();
+          int x = uvw[0]*(dims[0]-1);
+          int y = uvw[1]*(dims[1]-1);
+          double xfrac = (uvw[0]*(dims[0]-1))-x;
+          double yfrac = (uvw[1]*(dims[1]-1))-y;
+
+          vtkIdType p0 = appState->imgData->FindPoint(x,y,0.0);
+          vtkIdType p1 = appState->imgData->FindPoint(x+1,y,0.0);
+          vtkIdType p2 = appState->imgData->FindPoint(x,y+1,0.0);
+          vtkIdType p3 = appState->imgData->FindPoint(x+1,y+1,0.0);
+
+          vtkDataArray* scalars = appState->imgData->GetPointData()->GetScalars();
+
+          vtkIdType index[2][3] = {{ p0, p1, p2, }, { p0, p2, p3, }};
+
+          double data[2][3] = {{
+            scalars->GetTuple1(p0),
+            scalars->GetTuple1(p1),
+            scalars->GetTuple1(p2),
+          }, {
+            scalars->GetTuple1(p0),
+            scalars->GetTuple1(p2),
+            scalars->GetTuple1(p3),
+          }};
+
+          vtkIdType vlo=~0u, vhi=~0u;
+          double minValue=INFINITY, maxValue=-INFINITY;
+          int triID = (xfrac >= yfrac) ? 0 : 1;
+
+          for (int i=0; i<3; ++i) {
+            if (data[triID][i] < minValue) {
+              minValue = data[triID][i];
+              vlo = index[triID][i];
+            }
+
+            if (data[triID][2-i] > maxValue) {
+              maxValue = data[triID][2-i];
+              vhi = index[triID][2-i];
+            }
+          }
+
+          #if 0
+          std::cout << triID << '\n';
+          std::cout << minValue << ',' << maxValue << '\n';
+          std::cout << vlo << ',' << vhi << '\n';
+          std::cout << p0 << ',' << p1 << ',' << p2 << ',' << p3 << '\n';
+          std::cout << scalars->GetTuple1(p0) << '\n';
+          std::cout << scalars->GetTuple1(p1) << '\n';
+          std::cout << scalars->GetTuple1(p2) << '\n';
+          std::cout << scalars->GetTuple1(p3) << '\n';
+          std::cout << '\n';
+          #endif
         }
       }
   });
