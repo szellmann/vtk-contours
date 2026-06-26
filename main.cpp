@@ -74,19 +74,26 @@ inline vtkSmartPointer<vtkOpenGLTexture> toTextureUI(
   int width = 4096; // TODO: find out platform texture dimensions
   int height = divUp(vec.size(),width);
 
-  struct ui64x2_t {
-    unsigned lo[2], hi[2];
-  };
-  std::vector<ui64x2_t> ui64x2(width*size_t(height));
+  std::vector<unsigned> ui32(width*size_t(height)*4);
   for (size_t i=0; i<vec.size(); ++i) {
-    ui64x2[i/2].lo[i%2] = ((unsigned)vec[i])&0xFFFFFFFFul;
-    ui64x2[i/2].hi[i%2] = ((unsigned)(vec[i]>>32))&0xFFFFFFFFul;
+    // Convert from 64-bit to 32-bit, 5 highest bit are reserved for flags:
+    uint64_t flags64 = vec[i] & 0xF800000000000000ull;
+    uint32_t flags32 = uint32_t(flags64 >> 32ull);
+
+    uint64_t maskedIndex64 = vec[i] & 0x07FFFFFFFFFFFFFFull;
+    uint32_t maskedIndex32 = uint32_t(maskedIndex64);
+
+    if (uint32_t(maskedIndex64) != maskedIndex32) {
+      std::cerr << "WARNING: no support for 64-bit indices!" << std::endl;
+    }
+
+    ui32[i] = maskedIndex32 | flags32;
   }
 
   to->SetFormat(GL_RGBA_INTEGER);
   to->SetDataType(GL_UNSIGNED_INT);
   to->SetInternalFormat(GL_RGBA32UI);
-  bool uploaded = to->Create2DFromRaw(width, height, 4, VTK_UNSIGNED_INT, ui64x2.data());
+  bool uploaded = to->Create2DFromRaw(width, height, 4, VTK_UNSIGNED_INT, ui32.data());
 
   vtkSmartPointer<vtkOpenGLTexture> gl = vtkSmartPointer<vtkOpenGLTexture>::New();
   gl->SetTextureObject(to);
@@ -256,7 +263,10 @@ int main(int argc, char **argv)
   actor->GetProperty()->SetTexture("supernodes", toTextureUI(supernodes,glWin));
   actor->GetProperty()->SetTexture("hyperparents", toTextureUI(hyperparents,glWin));
   actor->GetProperty()->SetTexture("whenTransferred", toTextureUI(whenTransferred,glWin));
+  actor->GetProperty()->SetTexture("hypernodes", toTextureUI(hypernodes,glWin));
   actor->GetProperty()->SetTexture("hyperarcs", toTextureUI(hyperarcs,glWin));
+  uniforms->SetUniformi("numHypernodes", (int)hypernodes.size());
+  uniforms->SetUniformi("numSupernodes", (int)supernodes.size());
 
   std::ifstream shaderFile(std::string(SHADER_PATH)+"/segmentation.glsl");
   std::string shaderSource((std::istreambuf_iterator<char>(shaderFile)),

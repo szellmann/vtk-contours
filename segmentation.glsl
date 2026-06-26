@@ -14,10 +14,20 @@ uniform usampler2D superarcs;
 uniform usampler2D supernodes;
 uniform usampler2D hyperparents;
 uniform usampler2D whenTransferred;
+uniform usampler2D hypernodes;
 uniform usampler2D hyperarcs;
+uniform int numSupernodes;
+uniform int numHypernodes;
+
+#define INT_MIN  -2147483648
+#define INT_MAX   2147483647
+#define UINT_MIN  0u
+#define UINT_MAX  4294967295u
 
 // ./filter/scalar_topology/worklet/contourtree_augmented//Types.h
-#define NO_SUCH_ELEMENT 0x8000000u
+#define NO_SUCH_ELEMENT 0x80000000u
+#define IS_ASCENDING    0x08000000u
+#define INDEX_MASK      0x07FFFFFFu
 //constexpr viskores::Id NO_SUCH_ELEMENT = std::numeric_limits<viskores::Id>::min();
 //constexpr viskores::Id TERMINAL_ELEMENT = std::numeric_limits<viskores::Id>::max() / 2 + 1; //0x40000000 || 0x4000000000000000
 //constexpr viskores::Id IS_SUPERNODE = std::numeric_limits<viskores::Id>::max() / 4 + 1; //0x20000000 || 0x2000000000000000
@@ -36,40 +46,28 @@ vec3 randomColor(uint idx) {
               (b&255u)/255.f);
 }
 
-// 64-bit ID type
-struct ID_t {
-  uint lo, hi;
-};
-
 // 32-bit index from 64-bit ID
-uint maskedIndex(ID_t id) {
-  return id.lo; // TODO..
+uint maskedIndex(uint id) {
+  return id & INDEX_MASK;
 }
 
-bool noSuchElement(ID_t id) {
-  return (id.hi & NO_SUCH_ELEMENT) != 0u;
+bool noSuchElement(uint id) {
+  return (id & NO_SUCH_ELEMENT) != 0u;
 }
 
-struct ui64x2_t {
-  uint lo[2], hi[2];
-};
-
-ID_t getID(usampler2D samp, int index) {
-  int i=index%4096;
-  int j=index/4096;
-  uvec4 ui4 = texelFetch(samp, ivec2(i,j), 0);
-  if (index%2==0)
-    return ID_t(ui4.x,ui4.z);
-  else
-    return ID_t(ui4.y,ui4.w);
+bool isAscending(uint id) {
+  return (id & IS_ASCENDING) != 0u;
 }
 
-ID_t getID(usampler2D samp, uint index) {
-  return getID(samp, int(index));
+uint getID(usampler2D samp, uint index) {
+  uint i=maskedIndex(index)%4096u;
+  uint j=maskedIndex(index)/4096u;
+  uvec4 ui4 = texelFetch(samp, ivec2(int(i),int(j)), 0);
+  return ui4[index%4u];
 }
 
-ID_t getID(usampler2D samp, ID_t id) {
-  return getID(samp, int(id.lo));
+uint getID(usampler2D samp, int index) {
+  return getID(samp, uint(index));
 }
 
 float getData(int nodeID) {
@@ -79,10 +77,37 @@ float getData(int nodeID) {
   return f4.r;
 }
 
-float bary(float a, float b, float c, float u, float v) {
-  float s2 = c*v;
-  float s3 = b*u;
-  float s1 = a*(1.0f-(u+v));
+
+// a vertex structure given both its value _and_ its address
+// so we can compare using simulation of simplicity
+// https://arxiv.org/pdf/math/9410209
+struct MeshVertex {
+  uint addr;
+  float value;
+};
+
+bool compLT(MeshVertex a, MeshVertex b) {
+  if (a.value < b.value)
+    return true;
+  else if (a.value == b.value)
+    return a.addr < b.addr;
+  else
+    return false;
+}
+
+bool compGT(MeshVertex a, MeshVertex b) {
+  if (a.value > b.value)
+    return true;
+  else if (a.value == b.value)
+    return a.addr > b.addr;
+  else
+    return false;
+}
+
+float bary(MeshVertex a, MeshVertex b, MeshVertex c, float u, float v) {
+  float s2 = c.value*v;
+  float s3 = b.value*u;
+  float s1 = a.value*(1.0f-(u+v));
   return s1+s2+s3;
 }
 
@@ -104,65 +129,128 @@ void main() {
   int p2 = (x+1)+(y+1)*dims.x;
   int p3 = x+(y+1)*dims.x;
 
-  int tri0[3]; tri0[0]=p0; tri0[1]=p1; tri0[2]=p2;
-  int tri1[3]; tri1[0]=p0; tri1[1]=p2; tri1[2]=p3;
+  MeshVertex t0[3], t1[3];
+  t0[0] = MeshVertex(uint(p0),getData(p0));
+  t0[1] = MeshVertex(uint(p1),getData(p1));
+  t0[2] = MeshVertex(uint(p2),getData(p2));
 
-  float dat0[3]; dat0[0]=getData(p0); dat0[1]=getData(p1); dat0[2]=getData(p2);
-  float dat1[3]; dat1[0]=getData(p0); dat1[1]=getData(p2); dat1[2]=getData(p3);
-  int bottom=-1, top=-1;
-  float minValue=1e31f, maxValue=-1e31f;
+  t1[0] = MeshVertex(uint(p0),getData(p0));
+  t1[1] = MeshVertex(uint(p2),getData(p2));
+  t1[2] = MeshVertex(uint(p3),getData(p3));
 
   // in the bottom/right triangle, u-coord "grows" faster,
   // in the top/left triangle, v-coord "grows" faster:
   int triID = (xfrac >= yfrac) ? 0 : 1;
 
   // function value of node on triangle surface
-  float value = (triID==0) ? bary(dat0[0],dat0[1],dat0[2],xfrac-yfrac,yfrac)
-                           : bary(dat1[0],dat1[1],dat1[2],xfrac,yfrac-xfrac);
+  float value = (triID==0) ? bary(t0[0],t0[1],t0[2],xfrac-yfrac,yfrac)
+                           : bary(t1[0],t1[1],t1[2],xfrac,yfrac-xfrac);
+
+  MeshVertex bottomVertex = MeshVertex(UINT_MAX,1e31f);
+  MeshVertex topVertex = MeshVertex(UINT_MIN,-1e31f);
 
   // compute top and bottom ID (triangle vertices with max and min value):
   for (int i=0; i<3; ++i) {
     if (triID==0) {
-      if (dat0[i] < minValue) {
-        minValue = dat0[i];
-        bottom = tri0[i];
-      }
-
-      if (dat0[2-i] > maxValue) {
-        maxValue = dat0[2-i];
-        top = tri0[2-i];
-      }
+      if (compLT(t0[i],bottomVertex)) bottomVertex = t0[i];
+      if (compGT(t0[i],topVertex)) topVertex = t0[i];
     } else {
-      if (dat1[i] < minValue) {
-        minValue = dat1[i];
-        bottom = tri1[i];
-      }
-
-      if (dat1[2-i] > maxValue) {
-        maxValue = dat1[2-i];
-        top = tri1[2-i];
-      }
+      if (compLT(t1[i],bottomVertex)) bottomVertex = t1[i];
+      if (compGT(t1[i],topVertex)) topVertex = t1[i];
     }
   }
+
+  uint bottom = bottomVertex.addr;
+  uint top = topVertex.addr;
+
+  MeshVertex node = MeshVertex((bottomVertex.addr+topVertex.addr)/2u,value);
+
+  #define FATAL(X) if (X) { gl_FragData[0] = vec4(0.f); return; }
 
   // BEGIN LocateSuperarcs
   if (true) {
     // regular nodes only
     // we will need to prune top and bottom until one of them prunes past the node
-    ID_t topSuperparent = getID(superparents, top);
-    ID_t bottomSuperparent = getID(superparents, bottom);
+    uint topSuperparent = getID(superparents, top);
+    uint bottomSuperparent = getID(superparents, bottom);
     // and we can also find out when they transferred
-    ID_t topWhen = getID(whenTransferred, topSuperparent);
-    ID_t bottomWhen = getID(whenTransferred, bottomSuperparent);
+    uint topWhen = getID(whenTransferred, topSuperparent);
+    uint bottomWhen = getID(whenTransferred, bottomSuperparent);
     // and their hyperparent
-    ID_t topHyperparent = getID(hyperparents, topSuperparent);
-    ID_t bottomHyperparent = getID(hyperparents, bottomSuperparent);
+    uint topHyperparent = getID(hyperparents, topSuperparent);
+    uint bottomHyperparent = getID(hyperparents, bottomSuperparent);
+    // our goal is to work out the true hyperparent of the node
+    uint hyperparent = NO_SUCH_ELEMENT;
 
-    gl_FragData[0] = vec4(randomColor(maskedIndex(bottomHyperparent)), 1.f);
+    // now we loop until one of them goes past the vertex
+    // the invariant here is that the first direction to prune past the vertex prunes it
+    while (noSuchElement(hyperparent)) {
+      // loop to find pruner
+      // we test the one that prunes first
+      if (maskedIndex(topWhen) < maskedIndex(bottomWhen)) {
+        // top pruned first
+        // we prune down to the bottom of the hyperarc in either case, by updating the top superparent
+        topSuperparent = getID(hyperarcs, topHyperparent);
+        top = getID(supernodes, topSuperparent);
+
+        topWhen = getID(whenTransferred, topSuperparent);
+        // test to see if we've passed the node
+        if (compLT(MeshVertex(maskedIndex(top), getData(int(maskedIndex(top)))), node)) {
+          // just pruned past
+          hyperparent = topHyperparent;
+        } // just pruned past
+        // == is not possible, since node is regular
+        else // top < node
+        {    // not pruned past
+          FATAL (getID(hyperparents, topSuperparent) == topHyperparent)
+          topHyperparent = getID(hyperparents, topSuperparent);
+        } // not pruned past
+      }   // top pruned first
+      else if (maskedIndex(topWhen) > maskedIndex(bottomWhen)) {
+        // bottom pruned first
+        // we prune up to the top of the hyperarc in either case, by updating the bottom superparent
+        bottomSuperparent = getID(hyperarcs, bottomHyperparent);
+        bottom = getID(supernodes, bottomSuperparent);
+        bottomWhen = getID(whenTransferred, bottomSuperparent);
+        // test to see if we've passed the node
+        if (compGT(MeshVertex(maskedIndex(bottom), getData(int(maskedIndex(bottom)))), node)) {
+          // just pruned past
+          hyperparent = bottomHyperparent;
+        } // just pruned past
+        // == is not possible, since node is regular
+        else // bottom > node
+        {    // not pruned past
+          FATAL(getID(hyperparents, bottomSuperparent) == bottomHyperparent)
+          bottomHyperparent = getID(hyperparents, bottomSuperparent);
+        } // not pruned past
+      }   // bottom pruned first
+      else {
+        // both prune simultaneously
+        // this can happen when both top & bottom prune in the same pass because they belong to the same hyperarc
+        // but this means that they must have the same hyperparent, so we know the correct hyperparent & can check whether it ascends
+        hyperparent = bottomHyperparent;
+      }
+    }   // loop to find pruner
+  gl_FragData[0] = vec4(randomColor(hyperparent),1.f);
+    //if (isAscending(getID(hyperarcs, hyperparent))) {
+    //  // ascending hyperarc
+    //  // the supernodes on the hyperarc are in sorted low-high order
+    //  uint lowSupernode = getID(hypernodes, hyperparent);
+    //  uint highSupernode;
+    //  // if it's at the right hand end, take the last supernode in the array
+    //  if (maskedIndex(hyperparent) == uint(numHypernodes - 1))
+    //    highSupernode = uint(numSupernodes - 1);
+    //  // otherwise, take the supernode just before the next hypernode
+    //  else {
+    //    highSupernode = getID(hypernodes, maskedIndex(hyperparent) + 1u); highSupernode.lo -= 1u;
+    //  }
+    //  // now, the high supernode may be lower than the element, because the node belongs
+    //  // between it and the high end of the hyperarc
+    //}
   }
 
-  float f = (value-range.x)/(range.y-range.x);
-  gl_FragData[0] = vec4(vec3(f),1.f);
+  //float f = (value-range.x)/(range.y-range.x);
+  //gl_FragData[0] = vec4(vec3(f),1.f);
   //gl_FragData[0] = texColor;
 }
 
