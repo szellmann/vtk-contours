@@ -239,11 +239,14 @@ int main(int argc, char **argv)
   renderWindow->MakeCurrent();
   auto* glWin = vtkOpenGLRenderWindow::SafeDownCast(renderWindow);
 
+  float rangef[2] = { (float)range[0], (float)range[1] };
+
   vtkShaderProperty* shaderProperty = actor->GetShaderProperty();
   vtkUniforms *uniforms = shaderProperty->GetFragmentCustomUniforms();
 
   // upload data set
   uniforms->SetUniform2i("dims", dims);
+  uniforms->SetUniform2f("range", rangef);
   actor->GetProperty()->SetTexture("data", toTextureF(data,glWin));
   // upload contour tree
   actor->GetProperty()->SetTexture("nodes", toTextureUI(nodes,glWin));
@@ -299,8 +302,8 @@ int main(int argc, char **argv)
 
           vtkIdType p0 = appState->imgData->FindPoint(x,y,0.0);
           vtkIdType p1 = appState->imgData->FindPoint(x+1,y,0.0);
-          vtkIdType p2 = appState->imgData->FindPoint(x,y+1,0.0);
-          vtkIdType p3 = appState->imgData->FindPoint(x+1,y+1,0.0);
+          vtkIdType p2 = appState->imgData->FindPoint(x+1,y+1,0.0);
+          vtkIdType p3 = appState->imgData->FindPoint(x,y+1,0.0);
 
           vtkDataArray* scalars = appState->imgData->GetPointData()->GetScalars();
 

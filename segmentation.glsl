@@ -4,6 +4,7 @@ in vec2 tcoordVCVSOutput;
 uniform sampler2D actortexture;
 // data set
 uniform ivec2 dims;
+uniform vec2 range;
 uniform sampler2D data;
 // contour tree
 uniform usampler2D nodes;
@@ -78,6 +79,13 @@ float getData(int nodeID) {
   return f4.r;
 }
 
+float bary(float a, float b, float c, float u, float v) {
+  float s2 = c*v;
+  float s3 = b*u;
+  float s1 = a*(1.0f-(u+v));
+  return s1+s2+s3;
+}
+
 void main() {
   vec4 texColor = texture(actortexture, tcoordVCVSOutput);
   gl_FragData[0] = texColor;
@@ -93,8 +101,8 @@ void main() {
 
   int p0 = x+y*dims.x;
   int p1 = (x+1)+y*dims.x;
-  int p2 = x+(y+1)*dims.x;
-  int p3 = (x+1)+(y+1)*dims.x;
+  int p2 = (x+1)+(y+1)*dims.x;
+  int p3 = x+(y+1)*dims.x;
 
   int tri0[3]; tri0[0]=p0; tri0[1]=p1; tri0[2]=p2;
   int tri1[3]; tri1[0]=p0; tri1[1]=p2; tri1[2]=p3;
@@ -107,6 +115,10 @@ void main() {
   // in the bottom/right triangle, u-coord "grows" faster,
   // in the top/left triangle, v-coord "grows" faster:
   int triID = (xfrac >= yfrac) ? 0 : 1;
+
+  // function value of node on triangle surface
+  float value = (triID==0) ? bary(dat0[0],dat0[1],dat0[2],xfrac-yfrac,yfrac)
+                           : bary(dat1[0],dat1[1],dat1[2],xfrac,yfrac-xfrac);
 
   // compute top and bottom ID (triangle vertices with max and min value):
   for (int i=0; i<3; ++i) {
@@ -149,6 +161,9 @@ void main() {
     gl_FragData[0] = vec4(randomColor(maskedIndex(bottomHyperparent)), 1.f);
   }
 
+  float f = (value-range.x)/(range.y-range.x);
+  gl_FragData[0] = vec4(vec3(f),1.f);
+  //gl_FragData[0] = texColor;
 }
 
 
