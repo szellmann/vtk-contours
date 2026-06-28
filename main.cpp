@@ -59,6 +59,26 @@ inline std::vector<T> toStdVector(const viskores::cont::ArrayHandle<T> &array) {
   return vec;
 }
 
+inline void toUI32(std::vector<uint32_t> &dst, const std::vector<int64_t> &src) {
+  if (dst.size() < src.size())
+    dst.resize(src.size());
+
+  for (size_t i=0; i<src.size(); ++i) {
+    // Convert from 64-bit to 32-bit, 5 highest bit are reserved for flags:
+    uint64_t flags64 = src[i] & 0xF800000000000000ull;
+    uint32_t flags32 = uint32_t(flags64 >> 32ull);
+
+    uint64_t maskedIndex64 = src[i] & 0x07FFFFFFFFFFFFFFull;
+    uint32_t maskedIndex32 = uint32_t(maskedIndex64);
+
+    if (uint32_t(maskedIndex64) != maskedIndex32) {
+      std::cerr << "WARNING: no support for 64-bit indices!" << std::endl;
+    }
+
+    dst[i] = maskedIndex32 | flags32;
+  }
+}
+
 inline vtkSmartPointer<vtkOpenGLTexture> toTextureUI(
     const std::vector<int64_t> &vec, vtkOpenGLRenderWindow *glWin)
 {
@@ -75,20 +95,7 @@ inline vtkSmartPointer<vtkOpenGLTexture> toTextureUI(
   int height = divUp(vec.size(),width);
 
   std::vector<unsigned> ui32(width*size_t(height)*4);
-  for (size_t i=0; i<vec.size(); ++i) {
-    // Convert from 64-bit to 32-bit, 5 highest bit are reserved for flags:
-    uint64_t flags64 = vec[i] & 0xF800000000000000ull;
-    uint32_t flags32 = uint32_t(flags64 >> 32ull);
-
-    uint64_t maskedIndex64 = vec[i] & 0x07FFFFFFFFFFFFFFull;
-    uint32_t maskedIndex32 = uint32_t(maskedIndex64);
-
-    if (uint32_t(maskedIndex64) != maskedIndex32) {
-      std::cerr << "WARNING: no support for 64-bit indices!" << std::endl;
-    }
-
-    ui32[i] = maskedIndex32 | flags32;
-  }
+  toUI32(ui32,vec);
 
   to->SetFormat(GL_RGBA_INTEGER);
   to->SetDataType(GL_UNSIGNED_INT);
@@ -128,7 +135,10 @@ struct AppState {
   vtkActor *actor{nullptr};
   vtkRenderer *renderer{nullptr};
   vtkImageData *imgData{nullptr};
+  std::vector<int64_t> sortOrder, sortIndices, nodes, arcs, superparents, superarcs,
+      supernodes, hyperparents, whenTransferred, hypernodes, hyperarcs;
 } g_appState;
+
 
 int main(int argc, char **argv)
 {
@@ -174,8 +184,13 @@ int main(int argc, char **argv)
   colorMapped->Update();
 
   // serial contour tree to pass into FS:
-  std::vector<int64_t> nodes, arcs, superparents, superarcs, supernodes, hyperparents,
-      whenTransferred, hypernodes, hyperarcs;
+  std::vector<int64_t> &sortOrder = g_appState.sortOrder,
+      &sortIndices = g_appState.sortIndices,
+      &nodes = g_appState.nodes, &arcs = g_appState.arcs,
+      &superparents  = g_appState.superparents, &superarcs = g_appState.superarcs,
+      &supernodes = g_appState.supernodes, &hyperparents = g_appState.hyperparents,
+      &whenTransferred = g_appState.whenTransferred, &hypernodes = g_appState.hypernodes,
+      &hyperarcs = g_appState.hyperarcs;
 
   try {
     viskores::cont::DataSet viskoresData = tovtkm::Convert(imgData);
@@ -201,6 +216,13 @@ int main(int argc, char **argv)
     //contourTree.PrintContent();
     //std::cout << contourTree.PrintArraySizes() << '\n';
 
+    // sort order: from regular to mesh IDs
+    sortOrder = toStdVector(filter.GetSortOrder());
+    // sort indices: inverse mapping
+    sortIndices.resize(sortOrder.size());
+    for (int i=0; i<sortIndices.size(); ++i) {
+      sortIndices[sortOrder[i]] = i;
+    }
     nodes = toStdVector(contourTree.Nodes);
     arcs = toStdVector(contourTree.Arcs);
     superparents = toStdVector(contourTree.Superparents);
@@ -256,6 +278,8 @@ int main(int argc, char **argv)
   uniforms->SetUniform2f("range", rangef);
   actor->GetProperty()->SetTexture("data", toTextureF(data,glWin));
   // upload contour tree
+  actor->GetProperty()->SetTexture("sortOrder", toTextureUI(sortOrder,glWin));
+  actor->GetProperty()->SetTexture("sortIndices", toTextureUI(sortIndices,glWin));
   actor->GetProperty()->SetTexture("nodes", toTextureUI(nodes,glWin));
   actor->GetProperty()->SetTexture("arcs", toTextureUI(arcs,glWin));
   actor->GetProperty()->SetTexture("superparents", toTextureUI(superparents,glWin));
@@ -315,47 +339,7 @@ int main(int argc, char **argv)
           vtkIdType p2 = appState->imgData->FindPoint(x+1,y+1,0.0);
           vtkIdType p3 = appState->imgData->FindPoint(x,y+1,0.0);
 
-          vtkDataArray* scalars = appState->imgData->GetPointData()->GetScalars();
-
-          vtkIdType index[2][3] = {{ p0, p1, p2, }, { p0, p2, p3, }};
-
-          double data[2][3] = {{
-            scalars->GetTuple1(p0),
-            scalars->GetTuple1(p1),
-            scalars->GetTuple1(p2),
-          }, {
-            scalars->GetTuple1(p0),
-            scalars->GetTuple1(p2),
-            scalars->GetTuple1(p3),
-          }};
-
-          vtkIdType vlo=~0u, vhi=~0u;
-          double minValue=INFINITY, maxValue=-INFINITY;
-          int triID = (xfrac >= yfrac) ? 0 : 1;
-
-          for (int i=0; i<3; ++i) {
-            if (data[triID][i] < minValue) {
-              minValue = data[triID][i];
-              vlo = index[triID][i];
-            }
-
-            if (data[triID][2-i] > maxValue) {
-              maxValue = data[triID][2-i];
-              vhi = index[triID][2-i];
-            }
-          }
-
-          #if 0
-          std::cout << triID << '\n';
-          std::cout << minValue << ',' << maxValue << '\n';
-          std::cout << vlo << ',' << vhi << '\n';
-          std::cout << p0 << ',' << p1 << ',' << p2 << ',' << p3 << '\n';
-          std::cout << scalars->GetTuple1(p0) << '\n';
-          std::cout << scalars->GetTuple1(p1) << '\n';
-          std::cout << scalars->GetTuple1(p2) << '\n';
-          std::cout << scalars->GetTuple1(p3) << '\n';
-          std::cout << '\n';
-          #endif
+          std::cout << "p0-p3: " << p0 << ',' << p1 << ',' << p2 << ',' << p3 << '\n';
         }
       }
     });
