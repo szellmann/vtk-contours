@@ -151,8 +151,8 @@ void main() {
   float value = (triID==0) ? bary(t0[0],t0[1],t0[2],xfrac-yfrac,yfrac)
                            : bary(t1[0],t1[1],t1[2],xfrac,yfrac-xfrac);
 
-  MeshVertex bottomVertex = MeshVertex(UINT_MAX,1e31f);
-  MeshVertex topVertex = MeshVertex(UINT_MIN,-1e31f);
+  MeshVertex bottomVertex = MeshVertex(NO_SUCH_ELEMENT,1e31f);
+  MeshVertex topVertex = MeshVertex(NO_SUCH_ELEMENT,-1e31f);
 
   // compute top and bottom ID (triangle vertices with max and min value):
   for (int i=0; i<3; ++i) {
