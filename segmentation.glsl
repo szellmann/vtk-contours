@@ -16,8 +16,8 @@ uniform usampler2D hyperparents;
 uniform usampler2D whenTransferred;
 uniform usampler2D hypernodes;
 uniform usampler2D hyperarcs;
-uniform int numSupernodes;
-uniform int numHypernodes;
+uniform uint numSupernodes;
+uniform uint numHypernodes;
 
 #define INT_MIN  -2147483648
 #define INT_MAX   2147483647
@@ -70,11 +70,16 @@ uint getID(usampler2D samp, int index) {
   return getID(samp, uint(index));
 }
 
-float getData(int nodeID) {
-  int i=nodeID%4096;
-  int j=nodeID/4096;
-  vec4 f4 = texelFetch(data, ivec2(i,j), 0);
+float getDataByRegularID(uint regID) {
+  uint i=maskedIndex(regID)%4096u;
+  uint j=maskedIndex(regID)/4096u;
+  vec4 f4 = texelFetch(data, ivec2(int(i),int(j)), 0);
   return f4.r;
+}
+
+float getDataBySuperID(uint superID) {
+  uint regID = getID(supernodes, superID);
+  return getDataByRegularID(regID);
 }
 
 
@@ -130,13 +135,13 @@ void main() {
   int p3 = x+(y+1)*dims.x;
 
   MeshVertex t0[3], t1[3];
-  t0[0] = MeshVertex(uint(p0),getData(p0));
-  t0[1] = MeshVertex(uint(p1),getData(p1));
-  t0[2] = MeshVertex(uint(p2),getData(p2));
+  t0[0] = MeshVertex(uint(p0),getDataByRegularID(uint(p0)));
+  t0[1] = MeshVertex(uint(p1),getDataByRegularID(uint(p1)));
+  t0[2] = MeshVertex(uint(p2),getDataByRegularID(uint(p2)));
 
-  t1[0] = MeshVertex(uint(p0),getData(p0));
-  t1[1] = MeshVertex(uint(p2),getData(p2));
-  t1[2] = MeshVertex(uint(p3),getData(p3));
+  t1[0] = MeshVertex(uint(p0),getDataByRegularID(uint(p0)));
+  t1[1] = MeshVertex(uint(p2),getDataByRegularID(uint(p2)));
+  t1[2] = MeshVertex(uint(p3),getDataByRegularID(uint(p3)));
 
   // in the bottom/right triangle, u-coord "grows" faster,
   // in the top/left triangle, v-coord "grows" faster:
@@ -167,6 +172,9 @@ void main() {
 
   #define FATAL(X) if (X) { gl_FragData[0] = vec4(0.f); return; }
 
+  // The superarc we search for:
+  uint superparent = NO_SUCH_ELEMENT;
+
   // BEGIN LocateSuperarcs
   if (true) {
     // regular nodes only
@@ -195,7 +203,7 @@ void main() {
 
         topWhen = getID(whenTransferred, topSuperparent);
         // test to see if we've passed the node
-        if (compLT(MeshVertex(maskedIndex(top), getData(int(maskedIndex(top)))), node)) {
+        if (compLT(MeshVertex(maskedIndex(top), getDataByRegularID(top)), node)) {
           // just pruned past
           hyperparent = topHyperparent;
         } // just pruned past
@@ -213,7 +221,7 @@ void main() {
         bottom = getID(supernodes, bottomSuperparent);
         bottomWhen = getID(whenTransferred, bottomSuperparent);
         // test to see if we've passed the node
-        if (compGT(MeshVertex(maskedIndex(bottom), getData(int(maskedIndex(bottom)))), node)) {
+        if (compGT(MeshVertex(maskedIndex(bottom), getDataByRegularID(bottom)), node)) {
           // just pruned past
           hyperparent = bottomHyperparent;
         } // just pruned past
@@ -231,23 +239,82 @@ void main() {
         hyperparent = bottomHyperparent;
       }
     }   // loop to find pruner
-  gl_FragData[0] = vec4(randomColor(hyperparent),1.f);
-    //if (isAscending(getID(hyperarcs, hyperparent))) {
-    //  // ascending hyperarc
-    //  // the supernodes on the hyperarc are in sorted low-high order
-    //  uint lowSupernode = getID(hypernodes, hyperparent);
-    //  uint highSupernode;
-    //  // if it's at the right hand end, take the last supernode in the array
-    //  if (maskedIndex(hyperparent) == uint(numHypernodes - 1))
-    //    highSupernode = uint(numSupernodes - 1);
-    //  // otherwise, take the supernode just before the next hypernode
-    //  else {
-    //    highSupernode = getID(hypernodes, maskedIndex(hyperparent) + 1u); highSupernode.lo -= 1u;
-    //  }
-    //  // now, the high supernode may be lower than the element, because the node belongs
-    //  // between it and the high end of the hyperarc
-    //}
+    if (isAscending(getID(hyperarcs, hyperparent))) {
+      // ascending hyperarc
+      // the supernodes on the hyperarc are in sorted low-high order
+      uint lowSupernode = getID(hypernodes, hyperparent);
+      uint highSupernode;
+      // if it's at the right hand end, take the last supernode in the array
+      if (maskedIndex(hyperparent) == numHypernodes - 1u)
+        highSupernode = numSupernodes - 1u;
+      // otherwise, take the supernode just before the next hypernode
+      else
+        highSupernode = getID(hypernodes, maskedIndex(hyperparent) + 1u) -1u;
+      // now, the high supernode may be lower than the element, because the node belongs
+      // between it and the high end of the hyperarc
+      MeshVertex other = MeshVertex(getID(supernodes, highSupernode), getDataBySuperID(highSupernode));
+      if (compLT(other, node))
+        superparent = highSupernode;
+      // otherwise, we do a binary search of the superarcs
+      else {
+        // node between high & low
+        // keep going until we span exactly
+        while (highSupernode - lowSupernode > 1u) {
+          // binary search
+          uint midSupernode = (lowSupernode + highSupernode) / 2u;
+          // test against the node
+          if (compGT(MeshVertex(getID(supernodes, midSupernode), getDataBySuperID(midSupernode)), node))
+            highSupernode = midSupernode;
+          // == can't happen since node is regular
+          else
+            lowSupernode = midSupernode;
+        } // binary search
+
+        // now we can use the low node as the superparent
+        superparent = lowSupernode;
+      } // node between high & low
+    }   // ascending hyperarc 
+    else {
+      // descending hyperarc
+      // the supernodes on the hyperarc are in sorted high-low order
+      uint highSupernode = getID(hypernodes, hyperparent);
+      uint lowSupernode;
+      // if it's at the right hand end, take the last supernode in the array
+      if (maskedIndex(hyperparent) == numHypernodes - 1u) {
+        // last hyperarc
+        lowSupernode = numSupernodes - 1u;
+      } // other hyperarc
+      // otherwise, take the supernode just before the next hypernode
+      else {
+        // other hyperarc
+        lowSupernode = getID(hypernodes, maskedIndex(hyperparent) + 1u) - 1u;
+      } // other hyperarc
+      // now, the low supernode may be higher than the element, because the node belongs
+      // between it and the low end of the hyperarc
+      MeshVertex other = MeshVertex(getID(supernodes, lowSupernode), getDataBySuperID(lowSupernode));
+      if (compGT(other, node))
+        superparent = lowSupernode;
+      // otherwise, we do a binary search of the superarcs
+      else {
+        // node between low & high
+        // keep going until we span exactly
+        while (lowSupernode - highSupernode > 1u) {
+          // binary search
+          // find the midway supernode
+          uint midSupernode = (highSupernode + lowSupernode) / 2u;
+          // test against the node
+          if (compGT(MeshVertex(getID(supernodes, midSupernode), getDataBySuperID(midSupernode)), node))
+            highSupernode = midSupernode;
+          // == can't happen since node is regular
+          else
+            lowSupernode = midSupernode;
+        } // binary search
+        // now we can use the high node as the superparent
+        superparent = highSupernode;
+      }
+    }
   }
+  gl_FragData[0] = vec4(randomColor(superparent),1.f);
 
   //float f = (value-range.x)/(range.y-range.x);
   //gl_FragData[0] = vec4(vec3(f),1.f);
