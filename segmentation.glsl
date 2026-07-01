@@ -62,7 +62,7 @@ bool isAscending(uint id) {
 uint getID(usampler2D samp, uint index) {
   uint i=maskedIndex(index)%4096u;
   uint j=maskedIndex(index)/4096u;
-  uvec4 ui4 = texelFetch(samp, ivec2(int(i),int(j)), 0);
+  uvec4 ui4 = texelFetch(samp, ivec2(int(i/4u),int(j)), 0);
   return ui4[index%4u];
 }
 
@@ -87,7 +87,7 @@ float getDataBySuperID(uint superID) {
 // so we can compare using simulation of simplicity
 // https://arxiv.org/pdf/math/9410209
 struct MeshVertex {
-  uint addr;
+  float addr;
   float value;
 };
 
@@ -109,11 +109,18 @@ bool compGT(MeshVertex a, MeshVertex b) {
     return false;
 }
 
-float bary(MeshVertex a, MeshVertex b, MeshVertex c, float u, float v) {
-  float s2 = c.value*v;
-  float s3 = b.value*u;
-  float s1 = a.value*(1.0f-(u+v));
+float bary(float a, float b, float c, float u, float v) {
+  float s2 = c*v;
+  float s3 = b*u;
+  float s1 = a*(1.0f-(u+v));
   return s1+s2+s3;
+}
+
+MeshVertex bary(MeshVertex a, MeshVertex b, MeshVertex c, float u, float v) {
+  MeshVertex mv;
+  mv.addr = bary(a.addr, b.addr, c.addr, u, v);
+  mv.value = bary(a.value, b.value, c.value, u, v);
+  return mv;
 }
 
 void main() {
@@ -135,24 +142,24 @@ void main() {
   int p3 = x+(y+1)*dims.x;
 
   MeshVertex t0[3], t1[3];
-  t0[0] = MeshVertex(uint(p0),getDataByRegularID(uint(p0)));
-  t0[1] = MeshVertex(uint(p1),getDataByRegularID(uint(p1)));
-  t0[2] = MeshVertex(uint(p2),getDataByRegularID(uint(p2)));
+  t0[0] = MeshVertex(float(p0),getDataByRegularID(uint(p0)));
+  t0[1] = MeshVertex(float(p1),getDataByRegularID(uint(p1)));
+  t0[2] = MeshVertex(float(p2),getDataByRegularID(uint(p2)));
 
-  t1[0] = MeshVertex(uint(p0),getDataByRegularID(uint(p0)));
-  t1[1] = MeshVertex(uint(p2),getDataByRegularID(uint(p2)));
-  t1[2] = MeshVertex(uint(p3),getDataByRegularID(uint(p3)));
+  t1[0] = MeshVertex(float(p0),getDataByRegularID(uint(p0)));
+  t1[1] = MeshVertex(float(p2),getDataByRegularID(uint(p2)));
+  t1[2] = MeshVertex(float(p3),getDataByRegularID(uint(p3)));
 
   // in the bottom/right triangle, u-coord "grows" faster,
   // in the top/left triangle, v-coord "grows" faster:
   int triID = (xfrac >= yfrac) ? 0 : 1;
 
   // function value of node on triangle surface
-  float value = (triID==0) ? bary(t0[0],t0[1],t0[2],xfrac-yfrac,yfrac)
-                           : bary(t1[0],t1[1],t1[2],xfrac,yfrac-xfrac);
+  MeshVertex node = (triID==0) ? bary(t0[0],t0[1],t0[2],xfrac-yfrac,yfrac)
+                               : bary(t1[0],t1[1],t1[2],xfrac,yfrac-xfrac);
 
-  MeshVertex bottomVertex = MeshVertex(NO_SUCH_ELEMENT,1e31f);
-  MeshVertex topVertex = MeshVertex(NO_SUCH_ELEMENT,-1e31f);
+  MeshVertex bottomVertex = MeshVertex(1e31f,1e31f);
+  MeshVertex topVertex = MeshVertex(-1e31f,-1e31f);
 
   // compute top and bottom ID (triangle vertices with max and min value):
   for (int i=0; i<3; ++i) {
@@ -165,10 +172,8 @@ void main() {
     }
   }
 
-  uint bottom = bottomVertex.addr;
-  uint top = topVertex.addr;
-
-  MeshVertex node = MeshVertex((bottomVertex.addr+topVertex.addr)/2u,value);
+  uint bottom = uint(bottomVertex.addr);
+  uint top = uint(topVertex.addr);
 
   #define FATAL(X) if (X) { gl_FragData[0] = vec4(0.f); return; }
 
@@ -176,7 +181,7 @@ void main() {
   uint superparent = NO_SUCH_ELEMENT;
 
   // BEGIN LocateSuperarcs
-  if (true) {
+  //if (true) {
     // regular nodes only
     // we will need to prune top and bottom until one of them prunes past the node
     uint topSuperparent = getID(superparents, top);
@@ -313,10 +318,10 @@ void main() {
         superparent = highSupernode;
       }
     }
-  }
+  //}
   gl_FragData[0] = vec4(randomColor(superparent),1.f);
 
-  //float f = (value-range.x)/(range.y-range.x);
+  //float f = (node.value-range.x)/(range.y-range.x);
   //gl_FragData[0] = vec4(vec3(f),1.f);
   //gl_FragData[0] = texColor;
 }
