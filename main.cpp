@@ -29,11 +29,15 @@
 #include <vtkPlaneSource.h>
 #include <vtkTexture.h>
 #include <vtkOpenGLRenderWindow.h>
+#include <vtkOpenGLTexture.h>
 #include <vtkTextureObject.h>
 #include <vtkOpenGLTexture.h>
 #include <vtkCallbackCommand.h>
 #include <vtkCellPicker.h>
 #include <vtkUniforms.h>
+#include <vtkRenderStepsPass.h>
+#include <vtkFramebufferPass.h>
+#include <vtkPixelBufferObject.h>
 // vktmlib
 #include <vtkmlib/ArrayConverters.h>
 #include <vtkmlib/ImageDataConverter.h>
@@ -76,6 +80,29 @@ inline void toUI32(std::vector<uint32_t> &dst, const std::vector<int64_t> &src) 
     }
 
     dst[i] = maskedIndex32 | flags32;
+  }
+}
+
+void writePPM(std::string fileName,
+              const std::vector<uint8_t> &pixels,
+              unsigned width,
+              unsigned height,
+              unsigned components)
+{
+  std::ofstream of(fileName);
+  if (!of) return;
+
+  of << "P3\n" << width << " " << height << "\n255\n";
+  for (unsigned y=height-1; y>=0; --y) {
+    for (unsigned x=0; x<width; ++x) {
+      unsigned pixelID = (y * width + x) * components;
+      int r = pixels[pixelID];
+      int g = pixels[pixelID+1];
+      int b = pixels[pixelID+2];
+
+      of << r << ' ' << g << ' ' << b << "    ";
+    }
+    of << '\n';
   }
 }
 
@@ -237,12 +264,7 @@ int main(int argc, char **argv)
     return EXIT_FAILURE;
   }
 
-  double aspect=dims[0]/double(dims[1]);
   auto planeSource = vtkSmartPointer<vtkPlaneSource>::New();
-  planeSource->SetOrigin(0.0, 0.0, 0.0);
-  planeSource->SetPoint1(1.0*aspect, 0.0, 0.0);
-  planeSource->SetPoint2(0.0, 1.0, 0.0);
-
   auto mapper = vtkSmartPointer<vtkPolyDataMapper>::New();
   mapper->SetInputConnection(planeSource->GetOutputPort());
 
@@ -373,7 +395,50 @@ int main(int argc, char **argv)
   renderer->SetBackground(colors->GetColor3d("CornflowerBlue").GetData());
   renderer->ResetCamera();
 
+#if 0
+  vtkNew<vtkRenderStepsPass> basicPasses;
+  vtkNew<vtkFramebufferPass> fboPass;
+  fboPass->SetDelegatePass(basicPasses);
+  renderer->SetPass(fboPass);
+
+  vtkNew<vtkPlaneSource> targetPlane;
+  vtkNew<vtkPolyDataMapper> targetMapper;
+  targetMapper->SetInputConnection(targetPlane->GetOutputPort());
+
+  vtkNew<vtkOpenGLTexture> targetTexture;
+  auto *texObj = fboPass->GetColorTexture();
+  targetTexture->SetTextureObject(texObj);
+
+  vtkNew<vtkActor> targetActor;
+  targetActor->SetMapper(targetMapper);
+  targetActor->SetTexture(targetTexture);
+#endif
+
   renderWindow->Render();
+
+#if 0
+  if (texObj) {
+    unsigned texDims[] = {
+      texObj->GetWidth(),
+      texObj->GetHeight(),
+    };
+    std::vector<uint8_t> pixels(texDims[0]*texDims[1]*texObj->GetComponents());
+
+    auto *pbo = texObj->Download(texObj->GetTarget(), 0);
+    vtkIdType strides[2] = {0,0};
+    bool success = pbo && pbo->Download2D(VTK_UNSIGNED_CHAR,
+                                          pixels.data(),
+                                          texDims, 
+                                          texObj->GetComponents(),
+                                          strides);
+    pbo->Delete();
+
+    if (success) {
+      writePPM(fileName+".ppm",pixels,texDims[0],texDims[1],texObj->GetComponents());
+    }
+  }
+#endif
+
   interactor->Start();
 
   return EXIT_SUCCESS;

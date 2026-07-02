@@ -22,6 +22,7 @@ find_package(VTK COMPONENTS
   AcceleratorsVTKmCore
   AcceleratorsVTKmDataModel
   FiltersSources
+  RenderingOpenGL2
 )
 
 if (NOT VTK_FOUND)
