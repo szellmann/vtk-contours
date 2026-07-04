@@ -162,6 +162,7 @@ struct AppState {
   vtkActor *actor{nullptr};
   vtkRenderer *renderer{nullptr};
   vtkImageData *imgData{nullptr};
+  vtkShaderProperty *shaderProperty{nullptr};
   std::vector<int64_t> sortOrder, sortIndices, nodes, arcs, superparents, superarcs,
       supernodes, hyperparents, whenTransferred, hypernodes, hyperarcs;
 } g_appState;
@@ -264,7 +265,12 @@ int main(int argc, char **argv)
     return EXIT_FAILURE;
   }
 
+  double aspect=dims[0]/double(dims[1]);
   auto planeSource = vtkSmartPointer<vtkPlaneSource>::New();
+  planeSource->SetOrigin(0.0, 0.0, 0.0);
+  planeSource->SetPoint1(1.0*aspect, 0.0, 0.0);
+  planeSource->SetPoint2(0.0, 1.0, 0.0);
+
   auto mapper = vtkSmartPointer<vtkPolyDataMapper>::New();
   mapper->SetInputConnection(planeSource->GetOutputPort());
 
@@ -293,6 +299,7 @@ int main(int argc, char **argv)
   float rangef[2] = { (float)range[0], (float)range[1] };
 
   vtkShaderProperty* shaderProperty = actor->GetShaderProperty();
+  g_appState.shaderProperty = shaderProperty;
   vtkUniforms *uniforms = shaderProperty->GetFragmentCustomUniforms();
 
   // upload data set
@@ -313,6 +320,9 @@ int main(int argc, char **argv)
   actor->GetProperty()->SetTexture("hyperarcs", toTextureUI(hyperarcs,glWin));
   uniforms->SetUniformi("numHypernodes", (int)hypernodes.size());
   uniforms->SetUniformi("numSupernodes", (int)supernodes.size());
+  // interaction
+  float uvSelected[2] = {-1.f,-1.f};
+  uniforms->SetUniform2f("uvSelected", uvSelected);
 
   std::ifstream shaderFile(std::string(SHADER_PATH)+"/segmentation.glsl");
   std::string shaderSource((std::istreambuf_iterator<char>(shaderFile)),
@@ -347,21 +357,10 @@ int main(int argc, char **argv)
           vtkIdType cellId = cellPicker->GetCellId();
           vtkIdType pointId = cellPicker->GetPointId();
 
-          // convert from parametric picking coordinates to image space:
-          int dims[3];
-          appState->imgData->GetDimensions(dims);
           double *uvw = cellPicker->GetPCoords();
-          int x = uvw[0]*(dims[0]-1);
-          int y = uvw[1]*(dims[1]-1);
-          double xfrac = (uvw[0]*(dims[0]-1))-x;
-          double yfrac = (uvw[1]*(dims[1]-1))-y;
-
-          vtkIdType p0 = appState->imgData->FindPoint(x,y,0.0);
-          vtkIdType p1 = appState->imgData->FindPoint(x+1,y,0.0);
-          vtkIdType p2 = appState->imgData->FindPoint(x+1,y+1,0.0);
-          vtkIdType p3 = appState->imgData->FindPoint(x,y+1,0.0);
-
-          std::cout << "p0-p3: " << p0 << ',' << p1 << ',' << p2 << ',' << p3 << '\n';
+          float uvSelected[2] = {(float)uvw[0],(float)uvw[1]};
+          vtkUniforms *uniforms = appState->shaderProperty->GetFragmentCustomUniforms();
+          uniforms->SetUniform2f("uvSelected", uvSelected);
         }
       }
     });
@@ -380,14 +379,14 @@ int main(int argc, char **argv)
         std::string shaderSource((std::istreambuf_iterator<char>(shaderFile)),
             std::istreambuf_iterator<char>());
 
-        auto *shaderProperty = (vtkShaderProperty *)clientData;
-        if (!shaderProperty) return;
+        auto *appState = (AppState *)clientData;
+        if (!appState) return;
 
         std::cout << "Reloading shader source!\n";
-        shaderProperty->SetFragmentShaderCode(shaderSource.c_str());
+        appState->shaderProperty->SetFragmentShaderCode(shaderSource.c_str());
       }
     });
-  onKey->SetClientData(shaderProperty);
+  onKey->SetClientData(&g_appState);
   interactor->AddObserver(vtkCommand::KeyPressEvent, onKey);
 
   renderer->AddActor(actor);

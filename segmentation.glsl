@@ -1,4 +1,5 @@
 //VTK::System::Dec
+#extension GL_ARB_shading_language_include : require
 //VTK::Output::Dec
 in vec2 tcoordVCVSOutput;
 uniform sampler2D actortexture;
@@ -20,6 +21,8 @@ uniform usampler2D hypernodes;
 uniform usampler2D hyperarcs;
 uniform int numSupernodes;
 uniform int numHypernodes;
+// user interaction
+uniform vec2 uvSelected;
 
 #define UINT_MIN  0u
 #define UINT_MAX  4294967295u
@@ -65,12 +68,8 @@ float bary(float a, float b, float c, float u, float v) {
   return s1+s2+s3;
 }
 
-void main() {
-  vec4 texColor = texture(actortexture, tcoordVCVSOutput);
-  gl_FragData[0] = texColor;
-
+uint locateSuperarc(vec2 uv) {
   // compute the triangle we're in
-  vec2 uv = tcoordVCVSOutput.xy;
   int x = int(uv.x*float(dims.x-1));
   int y = int(uv.y*float(dims.y-1));
   float xf = float(uv.x*float(dims.x-1));
@@ -254,7 +253,25 @@ void main() {
       superparent = highSupernode;
     }
   }
-  gl_FragData[0] = vec4(randomColor(superparent),1.f);
+  return superparent;
+}
+
+void main() {
+  vec4 texColor = texture(actortexture, tcoordVCVSOutput);
+  gl_FragData[0] = texColor;
+
+  vec2 uv = tcoordVCVSOutput.xy;
+
+  uint selected = NO_SUCH_ELEMENT;
+  if (uvSelected.x>0 && uvSelected.y>0) {
+    selected = locateSuperarc(uvSelected);
+  }
+  uint superparent = locateSuperarc(uv);
+
+  if (superparent == selected)
+    gl_FragData[0] = vec4(1,0.5,0,1);
+  else
+    gl_FragData[0] = vec4(vec3(float(superparent)/(numSupernodes-1)),1.f);
 }
 
 
