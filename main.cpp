@@ -118,7 +118,7 @@ inline vtkSmartPointer<vtkOpenGLTexture> toTextureUI(
   to->SetMagnificationFilter(vtkTextureObject::Nearest);
 
   auto divUp = [](int a, int b) { return (a+b-1)/b; };
-  int width = 4096; // TODO: find out platform texture dimensions
+  int width = std::min((int)vec.size(),4096); // TODO: find out platform texture dimensions
   int height = divUp(vec.size(),width);
 
   std::vector<unsigned> ui32(width*size_t(height)*4);
@@ -147,10 +147,31 @@ inline vtkSmartPointer<vtkOpenGLTexture> toTextureF(
   to->SetMagnificationFilter(vtkTextureObject::Nearest);
 
   auto divUp = [](int a, int b) { return (a+b-1)/b; };
-  int width = 4096; // TODO: find out platform texture dimensions
+  int width = std::min((int)vec.size(),4096); // TODO: find out platform texture dimensions
   int height = divUp(vec.size(),width);
 
   bool uploaded = to->Create2DFromRaw(width, height, 1, VTK_FLOAT, (float *)vec.data());
+
+  vtkSmartPointer<vtkOpenGLTexture> gl = vtkSmartPointer<vtkOpenGLTexture>::New();
+  gl->SetTextureObject(to);
+
+  return gl;
+}
+
+inline vtkSmartPointer<vtkOpenGLTexture> toTextureRGBA32F(
+    const std::vector<float> &vec, vtkOpenGLRenderWindow *glWin)
+{
+  vtkNew<vtkTextureObject> to;
+
+  to->SetContext(glWin);
+  to->SetMinificationFilter(vtkTextureObject::Nearest);
+  to->SetMagnificationFilter(vtkTextureObject::Nearest);
+
+  auto divUp = [](int a, int b) { return (a+b-1)/b; };
+  int width = 4096; // TODO: find out platform texture dimensions
+  int height = divUp(vec.size(),width);
+
+  bool uploaded = to->Create2DFromRaw(vec.size()/4, 1, 4, VTK_FLOAT, (float *)vec.data());
 
   vtkSmartPointer<vtkOpenGLTexture> gl = vtkSmartPointer<vtkOpenGLTexture>::New();
   gl->SetTextureObject(to);
@@ -302,6 +323,12 @@ int main(int argc, char **argv)
   g_appState.shaderProperty = shaderProperty;
   vtkUniforms *uniforms = shaderProperty->GetFragmentCustomUniforms();
 
+  std::vector<float> rgbaLUT(supernodes.size()*4);
+  for (int i=0; i<rgbaLUT.size(); i+=4) {
+    rgbaLUT[i] = rgbaLUT[i+1] = rgbaLUT[i+2] = i/float(rgbaLUT.size()-4);
+    rgbaLUT[i+3] = 1.f;
+  }
+
   // upload data set
   uniforms->SetUniform2i("dims", dims);
   uniforms->SetUniform2f("range", rangef);
@@ -320,6 +347,8 @@ int main(int argc, char **argv)
   actor->GetProperty()->SetTexture("hyperarcs", toTextureUI(hyperarcs,glWin));
   uniforms->SetUniformi("numHypernodes", (int)hypernodes.size());
   uniforms->SetUniformi("numSupernodes", (int)supernodes.size());
+  // TF
+  actor->GetProperty()->SetTexture("rgbaLUT", toTextureRGBA32F(rgbaLUT,glWin));
   // interaction
   float uvSelected[2] = {-1.f,-1.f};
   uniforms->SetUniform2f("uvSelected", uvSelected);

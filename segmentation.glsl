@@ -21,6 +21,8 @@ uniform usampler2D hypernodes;
 uniform usampler2D hyperarcs;
 uniform int numSupernodes;
 uniform int numHypernodes;
+// TF
+uniform sampler2D rgbaLUT;
 // user interaction
 uniform vec2 uvSelected;
 
@@ -39,6 +41,10 @@ vec3 randomColor(uint idx) {
   return vec3((r&255u)/255.f,
               (g&255u)/255.f,
               (b&255u)/255.f);
+}
+
+vec4 lut(uint index) {
+  return texelFetch(rgbaLUT, ivec2(int(index),0), 0);
 }
 
 // 32-bit index from 64-bit ID
@@ -271,7 +277,7 @@ void main() {
   if (superparent == selected)
     gl_FragData[0] = vec4(1,0.5,0,1);
   else
-    gl_FragData[0] = vec4(vec3(float(superparent)/(numSupernodes-1)),1.f);
+    gl_FragData[0] = lut(superparent);
 }
 
 
