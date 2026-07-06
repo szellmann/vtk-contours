@@ -1,4 +1,6 @@
 // std
+#include <stdio.h>
+#include <fstream>
 #include <iostream>
 // vtk
 #include <vtkCamera.h>
@@ -83,26 +85,35 @@ inline void toUI32(std::vector<uint32_t> &dst, const std::vector<int64_t> &src) 
   }
 }
 
-void writePPM(std::string fileName,
-              const std::vector<uint8_t> &pixels,
-              unsigned width,
-              unsigned height,
-              unsigned components)
-{
-  std::ofstream of(fileName);
-  if (!of) return;
+inline void readLUT(std::string fileName, std::vector<float> &rgbaLUT) {
+  std::ifstream in(fileName);
+  if (!in.good()) return;
 
-  of << "P3\n" << width << " " << height << "\n255\n";
-  for (unsigned y=height-1; y>=0; --y) {
-    for (unsigned x=0; x<width; ++x) {
-      unsigned pixelID = (y * width + x) * components;
-      int r = pixels[pixelID];
-      int g = pixels[pixelID+1];
-      int b = pixels[pixelID+2];
+  std::string line;
+  while (std::getline(in, line)) {
+    int r, g, b, a;
+    int res = sscanf(line.c_str(), "%i %i %i %i", &r, &g, &b, &a);
+    if (res < 4) return;
+    rgbaLUT.push_back(r/255.f);
+    rgbaLUT.push_back(g/255.f);
+    rgbaLUT.push_back(b/255.f);
+    rgbaLUT.push_back(a/255.f);
+  }
+}
 
-      of << r << ' ' << g << ' ' << b << "    ";
-    }
-    of << '\n';
+inline void dumpLUT(const std::vector<float> &rgbaLUT) {
+  auto saturate = [](int x) {
+    int lo=0;
+    int hi=255;
+    return std::min(std::max(x,lo),hi);
+  };
+
+  for (int i=0; i<rgbaLUT.size(); i+=4) {
+    int r = saturate(int(rgbaLUT[i]*255));
+    int g = saturate(int(rgbaLUT[i+1]*255));
+    int b = saturate(int(rgbaLUT[i+2]*255));
+    int a = 255;
+    std::cout << r << ' ' << g << ' ' << b << ' ' << a << '\n';
   }
 }
 
@@ -323,11 +334,20 @@ int main(int argc, char **argv)
   g_appState.shaderProperty = shaderProperty;
   vtkUniforms *uniforms = shaderProperty->GetFragmentCustomUniforms();
 
-  std::vector<float> rgbaLUT(supernodes.size()*4);
-  for (int i=0; i<rgbaLUT.size(); i+=4) {
-    rgbaLUT[i] = rgbaLUT[i+1] = rgbaLUT[i+2] = i/float(rgbaLUT.size()-4);
-    rgbaLUT[i+3] = 1.f;
+  std::vector<float> rgbaLUT;
+  if (argc > 2) {
+    std::string lutFileName(argv[2]);
+    readLUT(lutFileName,rgbaLUT);
   }
+
+  if (rgbaLUT.size() < supernodes.size()*4) {
+    rgbaLUT.resize(supernodes.size()*4);
+    for (int i=0; i<rgbaLUT.size(); i+=4) {
+      rgbaLUT[i] = rgbaLUT[i+1] = rgbaLUT[i+2] = i/float(rgbaLUT.size()-4);
+      rgbaLUT[i+3] = 1.f;
+    }
+  }
+  //dumpLUT(rgbaLUT);
 
   // upload data set
   uniforms->SetUniform2i("dims", dims);
