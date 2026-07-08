@@ -46,6 +46,8 @@
 // viskores
 #include <viskores/filter/scalar_topology/ContourTreeUniformAugmented.h>
 #include <viskores/cont/Initialize.h>
+// ours
+#include "ShaderDebugger.h"
 
 #define GL_RGBA_INTEGER 0x8D99 // TODO!
 #define GL_UNSIGNED_INT 0x1405 // TODO!!
@@ -54,6 +56,14 @@
 #define GL_RGBA         0x1908
 #define GL_RGBA32F      0x8814
 #define GL_FLOAT        0x1406
+
+void replaceToken(std::string &source, const std::string &from, const std::string &to) {
+  size_t pos = 0;
+  while ((pos = source.find(from, pos)) != std::string::npos) {
+    source.replace(pos, from.length(), to);
+    pos += to.length();
+  }
+}
 
 template<typename T>
 inline std::vector<T> toStdVector(const viskores::cont::ArrayHandle<T> &array) {
@@ -65,10 +75,8 @@ inline std::vector<T> toStdVector(const viskores::cont::ArrayHandle<T> &array) {
   return vec;
 }
 
-inline void toUI32(std::vector<uint32_t> &dst, const std::vector<int64_t> &src) {
-  if (dst.size() < src.size())
-    dst.resize(src.size());
-
+inline std::vector<uint32_t> toUI32(const std::vector<int64_t> &src) {
+  std::vector<uint32_t> dst(src.size());
   for (size_t i=0; i<src.size(); ++i) {
     // Convert from 64-bit to 32-bit, 5 highest bit are reserved for flags:
     uint64_t flags64 = src[i] & 0xF800000000000000ull;
@@ -83,6 +91,7 @@ inline void toUI32(std::vector<uint32_t> &dst, const std::vector<int64_t> &src) 
 
     dst[i] = maskedIndex32 | flags32;
   }
+  return dst;
 }
 
 inline void readLUT(std::string fileName, std::vector<float> &rgbaLUT) {
@@ -117,8 +126,8 @@ inline void dumpLUT(const std::vector<float> &rgbaLUT) {
   }
 }
 
-inline vtkSmartPointer<vtkOpenGLTexture> toTextureUI(
-    const std::vector<int64_t> &vec, vtkOpenGLRenderWindow *glWin)
+inline vtkSmartPointer<vtkOpenGLTexture> toTextureRGBA32UI(
+    const std::vector<unsigned> &vec, vtkOpenGLRenderWindow *glWin)
 {
   // why use texture objects: vtkTexture maps the values to [0:255] and
   // that can't be turned off...
@@ -133,7 +142,7 @@ inline vtkSmartPointer<vtkOpenGLTexture> toTextureUI(
   int height = divUp(vec.size(),width);
 
   std::vector<unsigned> ui32(width*size_t(height)*4);
-  toUI32(ui32,vec);
+  std::memcpy(ui32.data(), vec.data(), sizeof(vec[0])*vec.size());
 
   to->SetFormat(GL_RGBA_INTEGER);
   to->SetDataType(GL_UNSIGNED_INT);
@@ -146,7 +155,7 @@ inline vtkSmartPointer<vtkOpenGLTexture> toTextureUI(
   return gl;
 }
 
-inline vtkSmartPointer<vtkOpenGLTexture> toTextureF(
+inline vtkSmartPointer<vtkOpenGLTexture> toTextureR32F(
     const std::vector<float> &vec, vtkOpenGLRenderWindow *glWin)
 {
   // why use texture objects: vtkTexture maps the values to [0:255] and
@@ -349,22 +358,28 @@ int main(int argc, char **argv)
   }
   //dumpLUT(rgbaLUT);
 
+  std::string dbg = std::string(PLUGIN_PATH)+std::string("/libShaderDebugger.dylib");
+
+  ShaderDebugger shaderDebugger(dbg);
+  if (!shaderDebugger.good()) return EXIT_FAILURE;
+  //shaderDebugger.fragment(0,0);
+
   // upload data set
   uniforms->SetUniform2i("dims", dims);
   uniforms->SetUniform2f("range", rangef);
-  actor->GetProperty()->SetTexture("data", toTextureF(data,glWin));
+  actor->GetProperty()->SetTexture("data", toTextureR32F(data,glWin));
   // upload contour tree
-  actor->GetProperty()->SetTexture("sortOrder", toTextureUI(sortOrder,glWin));
-  actor->GetProperty()->SetTexture("sortIndices", toTextureUI(sortIndices,glWin));
-  actor->GetProperty()->SetTexture("nodes", toTextureUI(nodes,glWin));
-  actor->GetProperty()->SetTexture("arcs", toTextureUI(arcs,glWin));
-  actor->GetProperty()->SetTexture("superparents", toTextureUI(superparents,glWin));
-  actor->GetProperty()->SetTexture("superarcs", toTextureUI(superarcs,glWin));
-  actor->GetProperty()->SetTexture("supernodes", toTextureUI(supernodes,glWin));
-  actor->GetProperty()->SetTexture("hyperparents", toTextureUI(hyperparents,glWin));
-  actor->GetProperty()->SetTexture("whenTransferred", toTextureUI(whenTransferred,glWin));
-  actor->GetProperty()->SetTexture("hypernodes", toTextureUI(hypernodes,glWin));
-  actor->GetProperty()->SetTexture("hyperarcs", toTextureUI(hyperarcs,glWin));
+  actor->GetProperty()->SetTexture("sortOrder", toTextureRGBA32UI(toUI32(sortOrder),glWin));
+  actor->GetProperty()->SetTexture("sortIndices", toTextureRGBA32UI(toUI32(sortIndices),glWin));
+  actor->GetProperty()->SetTexture("nodes", toTextureRGBA32UI(toUI32(nodes),glWin));
+  actor->GetProperty()->SetTexture("arcs", toTextureRGBA32UI(toUI32(arcs),glWin));
+  actor->GetProperty()->SetTexture("superparents", toTextureRGBA32UI(toUI32(superparents),glWin));
+  actor->GetProperty()->SetTexture("superarcs", toTextureRGBA32UI(toUI32(superarcs),glWin));
+  actor->GetProperty()->SetTexture("supernodes", toTextureRGBA32UI(toUI32(supernodes),glWin));
+  actor->GetProperty()->SetTexture("hyperparents", toTextureRGBA32UI(toUI32(hyperparents),glWin));
+  actor->GetProperty()->SetTexture("whenTransferred", toTextureRGBA32UI(toUI32(whenTransferred),glWin));
+  actor->GetProperty()->SetTexture("hypernodes", toTextureRGBA32UI(toUI32(hypernodes),glWin));
+  actor->GetProperty()->SetTexture("hyperarcs", toTextureRGBA32UI(toUI32(hyperarcs),glWin));
   uniforms->SetUniformi("numHypernodes", (int)hypernodes.size());
   uniforms->SetUniformi("numSupernodes", (int)supernodes.size());
   // TF
@@ -373,9 +388,33 @@ int main(int argc, char **argv)
   float uvSelected[2] = {-1.f,-1.f};
   uniforms->SetUniform2f("uvSelected", uvSelected);
 
+  /* shader debugger */
+
+  // upload data set
+
+  // upload countour tree
+  shaderDebugger.setTextureRGBA32UI("sortOrder", toUI32(sortOrder));
+  shaderDebugger.setTextureRGBA32UI("sortIndices", toUI32(sortIndices));
+  shaderDebugger.setTextureRGBA32UI("nodes", toUI32(nodes));
+  shaderDebugger.setTextureRGBA32UI("arcs", toUI32(arcs));
+  shaderDebugger.setTextureRGBA32UI("superparents", toUI32(superparents));
+  shaderDebugger.setTextureRGBA32UI("superarcs", toUI32(superarcs));
+  shaderDebugger.setTextureRGBA32UI("supernodes", toUI32(supernodes));
+  shaderDebugger.setTextureRGBA32UI("hyperparents", toUI32(hyperparents));
+  shaderDebugger.setTextureRGBA32UI("whenTransferred", toUI32(whenTransferred));
+  shaderDebugger.setTextureRGBA32UI("hypernodes", toUI32(hypernodes));
+  shaderDebugger.setTextureRGBA32UI("hyperarcs", toUI32(hyperarcs));
+  shaderDebugger.setUniformi("numHypernodes", (int)hypernodes.size());
+  shaderDebugger.setUniformi("numSupernodes", (int)supernodes.size());
+  // TF
+  shaderDebugger.setTextureRGBA32F("rgbaLUT", rgbaLUT);
+
+  shaderDebugger.fragment(0,0);
+
   std::ifstream shaderFile(std::string(SHADER_PATH)+"/segmentation.glsl");
   std::string shaderSource((std::istreambuf_iterator<char>(shaderFile)),
                             std::istreambuf_iterator<char>());
+  replaceToken(shaderSource, "SHADER_MAIN", "void main");
   shaderProperty->SetFragmentShaderCode(shaderSource.c_str());
 
   renderWindow->AddRenderer(renderer);
@@ -443,49 +482,7 @@ int main(int argc, char **argv)
   renderer->SetBackground(colors->GetColor3d("CornflowerBlue").GetData());
   renderer->ResetCamera();
 
-#if 0
-  vtkNew<vtkRenderStepsPass> basicPasses;
-  vtkNew<vtkFramebufferPass> fboPass;
-  fboPass->SetDelegatePass(basicPasses);
-  renderer->SetPass(fboPass);
-
-  vtkNew<vtkPlaneSource> targetPlane;
-  vtkNew<vtkPolyDataMapper> targetMapper;
-  targetMapper->SetInputConnection(targetPlane->GetOutputPort());
-
-  vtkNew<vtkOpenGLTexture> targetTexture;
-  auto *texObj = fboPass->GetColorTexture();
-  targetTexture->SetTextureObject(texObj);
-
-  vtkNew<vtkActor> targetActor;
-  targetActor->SetMapper(targetMapper);
-  targetActor->SetTexture(targetTexture);
-#endif
-
   renderWindow->Render();
-
-#if 0
-  if (texObj) {
-    unsigned texDims[] = {
-      texObj->GetWidth(),
-      texObj->GetHeight(),
-    };
-    std::vector<uint8_t> pixels(texDims[0]*texDims[1]*texObj->GetComponents());
-
-    auto *pbo = texObj->Download(texObj->GetTarget(), 0);
-    vtkIdType strides[2] = {0,0};
-    bool success = pbo && pbo->Download2D(VTK_UNSIGNED_CHAR,
-                                          pixels.data(),
-                                          texDims, 
-                                          texObj->GetComponents(),
-                                          strides);
-    pbo->Delete();
-
-    if (success) {
-      writePPM(fileName+".ppm",pixels,texDims[0],texDims[1],texObj->GetComponents());
-    }
-  }
-#endif
 
   interactor->Start();
 

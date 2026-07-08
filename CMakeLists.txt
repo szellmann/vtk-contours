@@ -2,6 +2,9 @@ cmake_minimum_required(VERSION 3.12 FATAL_ERROR)
 
 project(vtk-contours)
 
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 # keep on top:
 find_package(viskores)
 
@@ -40,4 +43,9 @@ vtk_module_autoinit(
 )
 
 set(SHADER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.")
+set(PLUGIN_DIR "${CMAKE_CURRENT_BINARY_DIR}/.")
 target_compile_definitions(${PROJECT_NAME} PRIVATE SHADER_PATH="${SHADER_DIR}")
+target_compile_definitions(${PROJECT_NAME} PRIVATE PLUGIN_PATH="${PLUGIN_DIR}")
+
+add_library(ShaderDebugger SHARED)
+target_sources(ShaderDebugger PRIVATE ShaderDebugger.cpp)

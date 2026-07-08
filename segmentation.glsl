@@ -1,5 +1,4 @@
 //VTK::System::Dec
-#extension GL_ARB_shading_language_include : require
 //VTK::Output::Dec
 in vec2 tcoordVCVSOutput;
 uniform sampler2D actortexture;
@@ -129,8 +128,8 @@ uint locateSuperarc(vec2 uv) {
   uint superparent = NO_SUCH_ELEMENT;
 
   // we will need to prune top and bottom until one of them prunes past the node
-  uint topSuperparent = getID(superparents, top);
-  uint bottomSuperparent = getID(superparents, bottom);
+  uint topSuperparent = getID(superparents, maskedIndex(top));
+  uint bottomSuperparent = getID(superparents, maskedIndex(bottom));
   // and we can also find out when they transferred
   uint topWhen = getID(whenTransferred, topSuperparent);
   uint bottomWhen = getID(whenTransferred, bottomSuperparent);
@@ -167,7 +166,7 @@ uint locateSuperarc(vec2 uv) {
       // bottom pruned first
       // we prune up to the top of the hyperarc in either case, by updating the bottom superparent
       bottomSuperparent = getID(hyperarcs, maskedIndex(bottomHyperparent));
-      bottom = getID(supernodes, bottomSuperparent);
+      bottom = getID(supernodes, maskedIndex(bottomSuperparent));
       bottomWhen = getID(whenTransferred, maskedIndex(bottomSuperparent));
       // test to see if we've passed the node
       if (bottom > node) {
@@ -262,7 +261,8 @@ uint locateSuperarc(vec2 uv) {
   return superparent;
 }
 
-void main() {
+SHADER_MAIN()
+{
   vec4 texColor = texture(actortexture, tcoordVCVSOutput);
   gl_FragData[0] = texColor;
 
