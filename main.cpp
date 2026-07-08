@@ -455,6 +455,10 @@ int main(int argc, char **argv)
 
           appState->shaderDebugger->fragment(uvSelected[0],uvSelected[1]);
         }
+      } else  {
+        vtkUniforms *uniforms = appState->shaderProperty->GetFragmentCustomUniforms();
+        float uvSelected[2] = {-1.f,-1.f};
+        uniforms->SetUniform2f("uvSelected", uvSelected);
       }
     });
   onClick->SetClientData(&g_appState);
