@@ -31,6 +31,26 @@ struct ShaderDebugger {
     *sym = value;
   }
 
+  void setUniform2i(std::string name, const int *value) {
+    vecmath::vec2i *sym = (vecmath::vec2i *)dlsym(handle, name.c_str());
+    if (!sym) {
+      std::cerr << "no such uniform: " << name << '\n';
+      return;
+    }
+    (*sym).x = value[0];
+    (*sym).y = value[1];
+  }
+
+  void setUniform2f(std::string name, const float *value) {
+    vecmath::vec2f *sym = (vecmath::vec2f *)dlsym(handle, name.c_str());
+    if (!sym) {
+      std::cerr << "no such uniform: " << name << '\n';
+      return;
+    }
+    (*sym).x = value[0];
+    (*sym).y = value[1];
+  }
+
   void setTextureR32F(std::string name, const std::vector<float> &vec) {
     float ***sym = (float ***)dlsym(handle, name.c_str());
     if (!sym) {

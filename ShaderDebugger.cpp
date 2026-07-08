@@ -19,6 +19,8 @@ typedef vecmath::vec4ui uvec4;
 
 #define SHADER_MAIN extern "C" int main
 
+#define DBG 1
+
 inline
 vec4 texelFetch(sampler2D sampler, ivec2 tcoord, int /*mipLevel*/) {
   return sampler[tcoord.y][tcoord.x];

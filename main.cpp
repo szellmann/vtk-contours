@@ -204,6 +204,7 @@ struct AppState {
   vtkRenderer *renderer{nullptr};
   vtkImageData *imgData{nullptr};
   vtkShaderProperty *shaderProperty{nullptr};
+  ShaderDebugger *shaderDebugger{nullptr};
   std::vector<int64_t> sortOrder, sortIndices, nodes, arcs, superparents, superarcs,
       supernodes, hyperparents, whenTransferred, hypernodes, hyperarcs;
 } g_appState;
@@ -362,7 +363,7 @@ int main(int argc, char **argv)
 
   ShaderDebugger shaderDebugger(dbg);
   if (!shaderDebugger.good()) return EXIT_FAILURE;
-  //shaderDebugger.fragment(0,0);
+  g_appState.shaderDebugger = &shaderDebugger;
 
   // upload data set
   uniforms->SetUniform2i("dims", dims);
@@ -391,7 +392,9 @@ int main(int argc, char **argv)
   /* shader debugger */
 
   // upload data set
-
+  shaderDebugger.setUniform2i("dims", dims);
+  shaderDebugger.setUniform2f("range", rangef);
+  shaderDebugger.setTextureR32F("data", data);
   // upload countour tree
   shaderDebugger.setTextureRGBA32UI("sortOrder", toUI32(sortOrder));
   shaderDebugger.setTextureRGBA32UI("sortIndices", toUI32(sortIndices));
@@ -449,6 +452,8 @@ int main(int argc, char **argv)
           float uvSelected[2] = {(float)uvw[0],(float)uvw[1]};
           vtkUniforms *uniforms = appState->shaderProperty->GetFragmentCustomUniforms();
           uniforms->SetUniform2f("uvSelected", uvSelected);
+
+          appState->shaderDebugger->fragment(uvSelected[0],uvSelected[1]);
         }
       }
     });
