@@ -40,7 +40,7 @@ vec4 gl_FragData[512];
 
 #include "segmentation.glsl"
 
-void printFragData(int i) {
+extern "C" void printFragData(int i) {
   printf("gl_FragData[%i]: %f,%f,%f,%f\n", i,
          gl_FragData[i].x,
          gl_FragData[i].y,
@@ -51,6 +51,6 @@ void printFragData(int i) {
 extern "C" void exec(float u, float v) {
   tcoordVCVSOutput = vec2(u,v);
   main();
-  printFragData(0);
+  // printFragData(0);
 }
 

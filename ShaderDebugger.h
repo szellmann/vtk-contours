@@ -15,6 +15,7 @@ struct ShaderDebugger {
     handle = dlopen(source.c_str(), RTLD_NOW);
     if (!handle) return;
     entryPointSym = dlsym(handle, "exec");
+    printFragDataSym = dlsym(handle, "printFragData");
   }
 
   ~ShaderDebugger() {
@@ -122,8 +123,15 @@ struct ShaderDebugger {
     entryPoint(u,v);
   }
 
-  bool good() { return handle && entryPointSym; }
+  void printFragData(int i) {
+    void (*printFragData)(int i);
+    printFragData = (void (*)(int i))printFragDataSym;
+    printFragData(i);
+  }
+
+  bool good() { return handle && entryPointSym && printFragDataSym; }
 
   void *handle{nullptr};
   void *entryPointSym{nullptr};
+  void *printFragDataSym{nullptr};
 };
