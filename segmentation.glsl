@@ -158,24 +158,6 @@ uint locateSuperarc(vec2 uv) {
   // barycentrically over the triangle surface
 
   // convert triangle corners from mesh ID to regular ID:
-  uint a0[3], a1[3];
-  a0[0] = getID(sortIndices, uint(m0));
-  a0[1] = getID(sortIndices, uint(m1));
-  a0[2] = getID(sortIndices, uint(m2));
-
-  a1[0] = getID(sortIndices, uint(m0));
-  a1[1] = getID(sortIndices, uint(m2));
-  a1[2] = getID(sortIndices, uint(m3));
-
-  float v0[3], v1[3];
-  v0[0] = getDataValueByMeshID(uint(m0));
-  v0[1] = getDataValueByMeshID(uint(m1));
-  v0[2] = getDataValueByMeshID(uint(m2));
-
-  v1[0] = getDataValueByMeshID(uint(m0));
-  v1[1] = getDataValueByMeshID(uint(m2));
-  v1[2] = getDataValueByMeshID(uint(m3));
-
   DataPoint t0[3];
   DataPoint t1[3];
 
