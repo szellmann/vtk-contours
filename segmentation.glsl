@@ -66,11 +66,77 @@ uint getID(usampler2D samp, uint index) {
   return ui4[index%4u];
 }
 
+float getDataValueByMeshID(uint meshID) {
+  uint i=meshID%4096u;
+  uint j=meshID/4096u;
+  vec4 f4 = texelFetch(data, ivec2(int(i),int(j)), 0);
+  return f4.r;
+}
+
+float getDataValueByRegularID(uint regID) {
+  uint meshID = getID(sortOrder, regID);
+  return getDataValueByMeshID(meshID);
+}
+
+float getDataValueBySuperID(uint superID) {
+  uint regID = getID(supernodes, superID);
+  return getDataValueByRegularID(regID);
+}
+
 float bary(float a, float b, float c, float u, float v) {
   float s2 = c*v;
   float s3 = b*u;
   float s1 = a*(1.0f-(u+v));
   return s1+s2+s3;
+}
+
+struct DataPoint {
+  float addr;
+  float value;
+};
+
+DataPoint bary(DataPoint a, DataPoint b, DataPoint c, float u, float v) {
+  DataPoint dp;
+  dp.addr  = bary(a.addr, b.addr, c.addr, u, v);
+  dp.value = bary(a.value, b.value, c.value, u, v);
+  return dp;
+}
+
+DataPoint makeDataPointFromMeshID(uint meshID) {
+  DataPoint dp;
+  dp.addr = float(meshID);
+  dp.value = getDataValueByMeshID(meshID);
+  return dp;
+}
+
+DataPoint makeDataPointFromRegularID(uint regID) {
+  uint meshID = getID(sortOrder, regID);
+  DataPoint dp;
+  dp.addr = float(meshID);
+  dp.value = getDataValueByRegularID(regID);
+  return dp;
+}
+
+uint dataPointToRegularID(DataPoint dp) {
+  uint meshID = uint(dp.addr);
+  uint regID = getID(sortIndices, meshID);
+  return regID;
+}
+
+bool lt(DataPoint a, DataPoint b) {
+  if (a.value < b.value) return true;
+  if (a.value > b.value) return false;
+  if (a.addr < b.addr) return true;
+  if (a.addr > b.addr) return false;
+  return false;
+}
+
+bool gt(DataPoint a, DataPoint b) {
+  if (a.value > b.value) return true;
+  if (a.value < b.value) return false;
+  if (a.addr > b.addr) return true;
+  if (a.addr < b.addr) return false;
+  return false;
 }
 
 uint locateSuperarc(vec2 uv) {
@@ -92,35 +158,54 @@ uint locateSuperarc(vec2 uv) {
   // barycentrically over the triangle surface
 
   // convert triangle corners from mesh ID to regular ID:
-  uint t0[3], t1[3];
-  t0[0] = getID(sortIndices, uint(m0));
-  t0[1] = getID(sortIndices, uint(m1));
-  t0[2] = getID(sortIndices, uint(m2));
+  uint a0[3], a1[3];
+  a0[0] = getID(sortIndices, uint(m0));
+  a0[1] = getID(sortIndices, uint(m1));
+  a0[2] = getID(sortIndices, uint(m2));
 
-  t1[0] = getID(sortIndices, uint(m0));
-  t1[1] = getID(sortIndices, uint(m2));
-  t1[2] = getID(sortIndices, uint(m3));
+  a1[0] = getID(sortIndices, uint(m0));
+  a1[1] = getID(sortIndices, uint(m2));
+  a1[2] = getID(sortIndices, uint(m3));
+
+  float v0[3], v1[3];
+  v0[0] = getDataValueByMeshID(uint(m0));
+  v0[1] = getDataValueByMeshID(uint(m1));
+  v0[2] = getDataValueByMeshID(uint(m2));
+
+  v1[0] = getDataValueByMeshID(uint(m0));
+  v1[1] = getDataValueByMeshID(uint(m2));
+  v1[2] = getDataValueByMeshID(uint(m3));
+
+  DataPoint t0[3];
+  DataPoint t1[3];
+
+  t0[0] = makeDataPointFromMeshID(uint(m0));
+  t0[1] = makeDataPointFromMeshID(uint(m1));
+  t0[2] = makeDataPointFromMeshID(uint(m2));
+
+  t1[0] = makeDataPointFromMeshID(uint(m0));
+  t1[1] = makeDataPointFromMeshID(uint(m2));
+  t1[2] = makeDataPointFromMeshID(uint(m3));
 
   // determine the triangle we are in:
   // in the bottom/right triangle, u-coord "grows" faster,
   // in the top/left triangle, v-coord "grows" faster:
   int triID = (xfrac >= yfrac) ? 0 : 1;
 
-  // function value of node on triangle surface
-  float node = (triID==0) ? bary(t0[0],t0[1],t0[2],xfrac-yfrac,yfrac)
-                          : bary(t1[0],t1[1],t1[2],xfrac,yfrac-xfrac);
+  DataPoint node = (triID==0) ? bary(t0[0],t0[1],t0[2],xfrac-yfrac,yfrac)
+                              : bary(t1[0],t1[1],t1[2],xfrac,yfrac-xfrac);
 
-  uint bottom = UINT_MAX;
-  uint top = UINT_MIN;
+  DataPoint bottom = DataPoint(UINT_MAX, 1e30f);
+  DataPoint top = DataPoint(UINT_MIN, -1e30f);
 
   // compute top and bottom ID (triangle vertices with max and min value):
   for (int i=0; i<3; ++i) {
     if (triID==0) {
-      if (t0[i] < bottom) bottom = uint(t0[i]);
-      if (t0[i] > top) top = uint(t0[i]);
+      if (lt(t0[i], bottom)) bottom = t0[i];
+      if (gt(t0[i], top)) top = t0[i];
     } else {
-      if (t1[i] < bottom) bottom = uint(t1[i]);
-      if (t1[i] > top) top = uint(t1[i]);
+      if (lt(t1[i], bottom)) bottom = t1[i];
+      if (gt(t1[i], top)) top = t1[i];
     }
   }
 
@@ -128,8 +213,8 @@ uint locateSuperarc(vec2 uv) {
   uint superparent = NO_SUCH_ELEMENT;
 
   // we will need to prune top and bottom until one of them prunes past the node
-  uint topSuperparent = getID(superparents, maskedIndex(top));
-  uint bottomSuperparent = getID(superparents, maskedIndex(bottom));
+  uint topSuperparent = getID(superparents, maskedIndex(dataPointToRegularID(top)));
+  uint bottomSuperparent = getID(superparents, maskedIndex(dataPointToRegularID(bottom)));
   // and we can also find out when they transferred
   uint topWhen = getID(whenTransferred, topSuperparent);
   uint bottomWhen = getID(whenTransferred, bottomSuperparent);
@@ -148,11 +233,12 @@ uint locateSuperarc(vec2 uv) {
       // top pruned first
       // we prune down to the bottom of the hyperarc in either case, by updating the top superparent
       topSuperparent = getID(hyperarcs, maskedIndex(topHyperparent));
-      top = getID(supernodes, maskedIndex(topSuperparent));
+      uint topSuperparentRegularID = getID(supernodes, maskedIndex(topSuperparent));
+      top = makeDataPointFromRegularID(topSuperparentRegularID);
 
       topWhen = getID(whenTransferred, maskedIndex(topSuperparent));
       // test to see if we've passed the node
-      if (top < node) {
+      if (lt(top, node)) {
         // just pruned past
         hyperparent = topHyperparent;
       } // just pruned past
@@ -166,10 +252,11 @@ uint locateSuperarc(vec2 uv) {
       // bottom pruned first
       // we prune up to the top of the hyperarc in either case, by updating the bottom superparent
       bottomSuperparent = getID(hyperarcs, maskedIndex(bottomHyperparent));
-      bottom = getID(supernodes, maskedIndex(bottomSuperparent));
+      uint bottomSuperparentRegularID = getID(supernodes, maskedIndex(bottomSuperparent));
+      bottom = makeDataPointFromRegularID(bottomSuperparentRegularID);
       bottomWhen = getID(whenTransferred, maskedIndex(bottomSuperparent));
       // test to see if we've passed the node
-      if (bottom > node) {
+      if (gt(bottom, node)) {
         // just pruned past
         hyperparent = bottomHyperparent;
       } // just pruned past
@@ -199,7 +286,9 @@ uint locateSuperarc(vec2 uv) {
       highSupernode = getID(hypernodes, maskedIndex(hyperparent) + 1u) -1u;
     // now, the high supernode may be lower than the element, because the node belongs
     // between it and the high end of the hyperarc
-    if (getID(supernodes, highSupernode) < node)
+    uint highSupernodeRegularID = getID(supernodes, highSupernode);
+    DataPoint tmp = makeDataPointFromRegularID(highSupernodeRegularID);
+    if (lt(tmp, node))
       superparent = highSupernode;
     // otherwise, we do a binary search of the superarcs
     else {
@@ -209,7 +298,9 @@ uint locateSuperarc(vec2 uv) {
         // binary search
         uint midSupernode = (lowSupernode + highSupernode) / 2u;
         // test against the node
-        if (getID(supernodes, midSupernode) > node)
+        uint midSupernodeRegularID = getID(supernodes, midSupernode);
+        DataPoint tmp = makeDataPointFromRegularID(midSupernodeRegularID);
+        if (gt(tmp, node))
           highSupernode = midSupernode;
         // == can't happen since node is regular
         else
@@ -237,7 +328,9 @@ uint locateSuperarc(vec2 uv) {
     } // other hyperarc
     // now, the low supernode may be higher than the element, because the node belongs
     // between it and the low end of the hyperarc
-    if (getID(supernodes, lowSupernode) > node)
+    uint highSupernodeRegularID = getID(supernodes, highSupernode);
+    DataPoint tmp = makeDataPointFromRegularID(highSupernodeRegularID);
+    if (gt(tmp, node))
       superparent = lowSupernode;
     // otherwise, we do a binary search of the superarcs
     else {
@@ -248,7 +341,9 @@ uint locateSuperarc(vec2 uv) {
         // find the midway supernode
         uint midSupernode = (highSupernode + lowSupernode) / 2u;
         // test against the node
-        if (getID(supernodes, midSupernode) > node)
+        uint midSupernodeRegularID = getID(supernodes, midSupernode);
+        DataPoint tmp = makeDataPointFromRegularID(midSupernodeRegularID);
+        if (gt(tmp, node))
           highSupernode = midSupernode;
         // == can't happen since node is regular
         else

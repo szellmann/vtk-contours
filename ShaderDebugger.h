@@ -53,19 +53,30 @@ struct ShaderDebugger {
   }
 
   void setTextureR32F(std::string name, const std::vector<float> &vec) {
-    float ***sym = (float ***)dlsym(handle, name.c_str());
+    vecmath::vec4f ***sym = (vecmath::vec4f ***)dlsym(handle, name.c_str());
     if (!sym) {
       std::cerr << "no such sampler: " << name << '\n';
       return;
     }
 
     auto divUp = [](int a, int b) { return (a+b-1)/b; };
-    int width = std::min((int)vec.size(),4096);
+
+    int totalPixels = divUp(vec.size(),4);
+    int width = std::min(totalPixels,4096);
+    if (width == 0) width = 1;
     int height = divUp(vec.size(),width);
 
-    *sym = new float*[height];
+    *sym = new vecmath::vec4f*[height];
+    size_t it = 0;
     for (int i=0; i<height; ++i) {
-      (*sym)[i] = new float[width];
+      (*sym)[i] = new vecmath::vec4f[width];
+      for (int j=0; j<width; ++j) {
+        float r = vec[it++];
+        float g = vec[it++];
+        float b = vec[it++];
+        float a = vec[it++];
+        (*sym)[i][j] = vecmath::vec4f(r,g,b,a);
+      }
     }
   }
 
