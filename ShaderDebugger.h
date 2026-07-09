@@ -61,7 +61,7 @@ struct ShaderDebugger {
 
     auto divUp = [](int a, int b) { return (a+b-1)/b; };
 
-    int totalPixels = divUp(vec.size(),4);
+    int totalPixels = divUp(vec.size(),1);
     int width = std::min(totalPixels,4096);
     if (width == 0) width = 1;
     int height = divUp(vec.size(),width);
@@ -72,10 +72,7 @@ struct ShaderDebugger {
       (*sym)[i] = new vecmath::vec4f[width];
       for (int j=0; j<width; ++j) {
         float r = vec[it++];
-        float g = vec[it++];
-        float b = vec[it++];
-        float a = vec[it++];
-        (*sym)[i][j] = vecmath::vec4f(r,g,b,a);
+        (*sym)[i][j] = vecmath::vec4f(r);
       }
     }
   }

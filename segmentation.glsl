@@ -375,7 +375,7 @@ SHADER_MAIN()
     gl_FragData[0] = lut(superparent);
 
 #ifdef DBG
-    std::cout << "superparent: " << superparent << '\n';
+  std::cout << "superparent: " << superparent << '\n';
 #endif
 }
 
