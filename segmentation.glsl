@@ -287,8 +287,8 @@ uint locateSuperarc(vec2 uv) {
     // now, the high supernode may be lower than the element, because the node belongs
     // between it and the high end of the hyperarc
     uint highSupernodeRegularID = getID(supernodes, highSupernode);
-    DataPoint tmp = makeDataPointFromRegularID(highSupernodeRegularID);
-    if (lt(tmp, node))
+    DataPoint highSupernodeDP = makeDataPointFromRegularID(highSupernodeRegularID);
+    if (lt(highSupernodeDP, node))
       superparent = highSupernode;
     // otherwise, we do a binary search of the superarcs
     else {
@@ -299,8 +299,8 @@ uint locateSuperarc(vec2 uv) {
         uint midSupernode = (lowSupernode + highSupernode) / 2u;
         // test against the node
         uint midSupernodeRegularID = getID(supernodes, midSupernode);
-        DataPoint tmp = makeDataPointFromRegularID(midSupernodeRegularID);
-        if (gt(tmp, node))
+        DataPoint midSupernodeDP = makeDataPointFromRegularID(midSupernodeRegularID);
+        if (gt(midSupernodeDP, node))
           highSupernode = midSupernode;
         // == can't happen since node is regular
         else
@@ -328,9 +328,9 @@ uint locateSuperarc(vec2 uv) {
     } // other hyperarc
     // now, the low supernode may be higher than the element, because the node belongs
     // between it and the low end of the hyperarc
-    uint highSupernodeRegularID = getID(supernodes, highSupernode);
-    DataPoint tmp = makeDataPointFromRegularID(highSupernodeRegularID);
-    if (gt(tmp, node))
+    uint lowSupernodeRegularID = getID(supernodes, lowSupernode);
+    DataPoint lowSupernodeDP = makeDataPointFromRegularID(lowSupernodeRegularID);
+    if (gt(lowSupernodeDP, node))
       superparent = lowSupernode;
     // otherwise, we do a binary search of the superarcs
     else {
@@ -342,8 +342,8 @@ uint locateSuperarc(vec2 uv) {
         uint midSupernode = (highSupernode + lowSupernode) / 2u;
         // test against the node
         uint midSupernodeRegularID = getID(supernodes, midSupernode);
-        DataPoint tmp = makeDataPointFromRegularID(midSupernodeRegularID);
-        if (gt(tmp, node))
+        DataPoint midSupernodeDP = makeDataPointFromRegularID(midSupernodeRegularID);
+        if (gt(midSupernodeDP, node))
           highSupernode = midSupernode;
         // == can't happen since node is regular
         else
