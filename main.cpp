@@ -202,11 +202,13 @@ inline vtkSmartPointer<vtkOpenGLTexture> toTextureRGBA32F(
 struct AppState {
   vtkActor *actor{nullptr};
   vtkRenderer *renderer{nullptr};
+  vtkRenderWindow *renderWindow{nullptr};
   vtkImageData *imgData{nullptr};
   vtkShaderProperty *shaderProperty{nullptr};
   ShaderDebugger *shaderDebugger{nullptr};
   std::vector<int64_t> sortOrder, sortIndices, nodes, arcs, superparents, superarcs,
       supernodes, hyperparents, whenTransferred, hypernodes, hyperarcs;
+  bool showRaster{false};
 } g_appState;
 
 
@@ -330,6 +332,7 @@ int main(int argc, char **argv)
   g_appState.renderer = renderer;
 
   auto renderWindow = vtkSmartPointer<vtkRenderWindow>::New();
+  g_appState.renderWindow = renderWindow;
   renderWindow->SetSize(1024,1024);
 
 
@@ -388,6 +391,7 @@ int main(int argc, char **argv)
   // interaction
   float uvSelected[2] = {-1.f,-1.f};
   uniforms->SetUniform2f("uvSelected", uvSelected);
+  uniforms->SetUniformi("raster", g_appState.showRaster);
 
   /* shader debugger */
 
@@ -465,22 +469,29 @@ int main(int argc, char **argv)
   onClick->SetClientData(&g_appState);
   interactor->AddObserver(vtkCommand::LeftButtonPressEvent , onClick);
 
-  // key 's' hot-reloads the shader:
   vtkNew<vtkCallbackCommand> onKey;
   onKey->SetCallback(
     [](vtkObject *caller, long unsigned int eventID, void *clientData, void *callData) {
       auto *interactor = vtkRenderWindowInteractor::SafeDownCast(caller);
       if (!interactor) return;
+      auto *appState = (AppState *)clientData;
+      if (!appState) return;
       std::string key = interactor->GetKeySym();
+  // key 'r': toggle raster
+      if (key == "r") {
+        appState->showRaster = !appState->showRaster;
+        vtkUniforms *uniforms = appState->shaderProperty->GetFragmentCustomUniforms();
+        uniforms->SetUniformi("raster", appState->showRaster);
+        appState->renderWindow->Render();
+      }
+  // key 's' hot-reloads the shader:
       if (key == "s") {
         std::ifstream shaderFile(std::string(SHADER_PATH)+"/segmentation.glsl");
         std::string shaderSource((std::istreambuf_iterator<char>(shaderFile)),
             std::istreambuf_iterator<char>());
 
-        auto *appState = (AppState *)clientData;
-        if (!appState) return;
-
         std::cout << "Reloading shader source!\n";
+        replaceToken(shaderSource, "SHADER_MAIN", "void main");
         appState->shaderProperty->SetFragmentShaderCode(shaderSource.c_str());
       }
     });

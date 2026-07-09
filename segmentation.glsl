@@ -24,6 +24,7 @@ uniform int numHypernodes;
 uniform sampler2D rgbaLUT;
 // user interaction
 uniform vec2 uvSelected;
+uniform int raster;
 
 #define UINT_MIN  0u
 #define UINT_MAX  4294967295u
@@ -149,10 +150,10 @@ uint locateSuperarc(vec2 uv) {
   float yfrac = yf-float(y);
 
   // meshIDs
-  int m0 = x+y*dims.x;
-  int m1 = (x+1)+y*dims.x;
-  int m2 = (x+1)+(y+1)*dims.x;
-  int m3 = x+(y+1)*dims.x;
+  int m00 = x+y*dims.x;
+  int m10 = (x+1)+y*dims.x;
+  int m11 = (x+1)+(y+1)*dims.x;
+  int m01 = x+(y+1)*dims.x;
 
   // convert fragment to (continuous) regular ID interpolated
   // barycentrically over the triangle surface
@@ -161,13 +162,26 @@ uint locateSuperarc(vec2 uv) {
   DataPoint t0[3];
   DataPoint t1[3];
 
-  t0[0] = makeDataPointFromMeshID(uint(m0));
-  t0[1] = makeDataPointFromMeshID(uint(m1));
-  t0[2] = makeDataPointFromMeshID(uint(m2));
+  t0[0] = makeDataPointFromMeshID(uint(m00));
+  t0[1] = makeDataPointFromMeshID(uint(m10));
+  t0[2] = makeDataPointFromMeshID(uint(m11));
 
-  t1[0] = makeDataPointFromMeshID(uint(m0));
-  t1[1] = makeDataPointFromMeshID(uint(m2));
-  t1[2] = makeDataPointFromMeshID(uint(m3));
+  t1[0] = makeDataPointFromMeshID(uint(m00));
+  t1[1] = makeDataPointFromMeshID(uint(m11));
+  t1[2] = makeDataPointFromMeshID(uint(m01));
+#ifdef DBG
+  std::cout << "m00: " << m00 << ", value: " << t0[0].value << '\n';
+  std::cout << "m10: " << m10 << ", value: " << t0[1].value << '\n';
+  std::cout << "m11: " << m11 << ", value: " << t0[2].value << '\n';
+  std::cout << "m01: " << m01 << ", value: " << t1[2].value << '\n';
+
+  std::cout << "Tri0:\n";
+  std::cout << t0[0].value << ',' << t0[1].value << ',' << t0[2].value << '\n';
+  std::cout << '\n';
+  std::cout << "Tri1:\n";
+  std::cout << t1[0].value << ',' << t1[1].value << ',' << t1[2].value << '\n';
+  std::cout << '\n';
+#endif
 
   // determine the triangle we are in:
   // in the bottom/right triangle, u-coord "grows" faster,
@@ -177,8 +191,8 @@ uint locateSuperarc(vec2 uv) {
   DataPoint node = (triID==0) ? bary(t0[0],t0[1],t0[2],xfrac-yfrac,yfrac)
                               : bary(t1[0],t1[1],t1[2],xfrac,yfrac-xfrac);
 
-  DataPoint bottom = DataPoint(UINT_MAX, 1e30f);
-  DataPoint top = DataPoint(UINT_MIN, -1e30f);
+  DataPoint bottom = DataPoint(1e30f, 1e30f);
+  DataPoint top = DataPoint(-1e30f, -1e30f);
 
   // compute top and bottom ID (triangle vertices with max and min value):
   for (int i=0; i<3; ++i) {
@@ -190,6 +204,13 @@ uint locateSuperarc(vec2 uv) {
       if (gt(t1[i], top)) top = t1[i];
     }
   }
+#ifdef DBG
+  std::cout << "Node:\n";
+  std::cout << node.addr << ',' << node.value << '\n';
+  std::cout << '\n';
+  std::cout << "top   : " << top.addr << ',' << top.value << '\n';
+  std::cout << "bottom: " << bottom.addr << ',' << bottom.value << '\n';
+#endif
 
   // The superarc we search for:
   uint superparent = NO_SUCH_ELEMENT;
@@ -338,6 +359,25 @@ uint locateSuperarc(vec2 uv) {
   return superparent;
 }
 
+void drawRaster(vec2 uv) {
+  // compute the triangle we're in
+  int x = int(uv.x*float(dims.x-1));
+  int y = int(uv.y*float(dims.y-1));
+  float xf = float(uv.x*float(dims.x-1));
+  float yf = float(uv.y*float(dims.y-1));
+  float xfrac = xf-float(x);
+  float yfrac = yf-float(y);
+
+  float eps = 5e-2f;
+  if (xfrac < eps || yfrac < eps) {
+    gl_FragData[0] = vec4(1,0,0,1);
+  }
+
+  if (abs(xfrac-yfrac) < eps/2.f) {
+    gl_FragData[0] = vec4(1,0,0,1);
+  }
+}
+
 SHADER_MAIN()
 {
   vec4 texColor = texture(actortexture, tcoordVCVSOutput);
@@ -355,6 +395,9 @@ SHADER_MAIN()
     gl_FragData[0] = vec4(1,0.5,0,1);
   else
     gl_FragData[0] = lut(superparent);
+
+  if (raster!=0)
+    drawRaster(uv);
 
 #ifdef DBG
   std::cout << "superparent: " << superparent << '\n';
