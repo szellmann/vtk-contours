@@ -333,7 +333,7 @@ int main(int argc, char **argv)
 
   auto renderWindow = vtkSmartPointer<vtkRenderWindow>::New();
   g_appState.renderWindow = renderWindow;
-  renderWindow->SetSize(1024,1024);
+  renderWindow->SetSize(1600*aspect,1600);
 
 
   // render once to enforce context creation:
