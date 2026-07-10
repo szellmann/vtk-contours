@@ -360,7 +360,6 @@ uint locateSuperarc(vec2 uv) {
 }
 
 void drawRaster(vec2 uv) {
-  // compute the triangle we're in
   int x = int(uv.x*float(dims.x-1));
   int y = int(uv.y*float(dims.y-1));
   float xf = float(uv.x*float(dims.x-1));
@@ -368,13 +367,52 @@ void drawRaster(vec2 uv) {
   float xfrac = xf-float(x);
   float yfrac = yf-float(y);
 
-  float eps = 5e-2f;
-  if (xfrac < eps || yfrac < eps) {
+  float eps = 2e-2f;
+  if (xfrac < eps || 1.f-xfrac < eps || yfrac < eps || 1.f-yfrac < eps) {
     gl_FragData[0] = vec4(1,0,0,1);
   }
 
-  if (abs(xfrac-yfrac) < eps/2.f) {
+  if (abs(xfrac-yfrac) < eps) {
     gl_FragData[0] = vec4(1,0,0,1);
+  }
+}
+
+void highlightSupernodes(vec2 uv) {
+  int x = int(uv.x*float(dims.x-1));
+  int y = int(uv.y*float(dims.y-1));
+  float xf = float(uv.x*float(dims.x-1));
+  float yf = float(uv.y*float(dims.y-1));
+  float xfrac = xf-float(x);
+  float yfrac = yf-float(y);
+
+  float eps = 2e-1f;
+
+  int m00 = x+y*dims.x;
+  int m10 = (x+1)+y*dims.x;
+  int m11 = (x+1)+(y+1)*dims.x;
+  int m01 = x+(y+1)*dims.x;
+
+  uint node = NO_SUCH_ELEMENT;
+  if (xfrac < eps && yfrac < eps) {
+    node = getID(sortIndices, uint(m00));
+  }
+
+  if (1.f-xfrac < eps && yfrac < eps) {
+    node = getID(sortIndices, uint(m10));
+  }
+
+  if (1.f-xfrac < eps && 1.f-yfrac < eps) {
+    node = getID(sortIndices, uint(m11));
+  }
+
+  if (xfrac < eps && 1.f-yfrac < eps) {
+    node = getID(sortIndices, uint(m01));
+  }
+
+  if (!noSuchElement(node)) {
+    uint superparent = getID(superparents, maskedIndex(node));
+    if (getID(supernodes, maskedIndex(superparent)) == node)
+      gl_FragData[0] = vec4(1,1,0,1);
   }
 }
 
@@ -398,6 +436,8 @@ SHADER_MAIN()
 
   if (raster!=0)
     drawRaster(uv);
+
+  highlightSupernodes(uv);
 
 #ifdef DBG
   std::cout << "superparent: " << superparent << '\n';
