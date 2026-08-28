@@ -199,6 +199,77 @@ inline vtkSmartPointer<vtkOpenGLTexture> toTextureRGBA32F(
   return gl;
 }
 
+inline float bary(float a, float b, float c, float u, float v) {
+  float s2 = c*v;
+  float s3 = b*u;
+  float s1 = a*(1.0f-(u+v));
+  return s1+s2+s3;
+}
+
+inline float interpolateBarycentric(vtkDataArray *input, int w, int h, float u, float v)
+{
+  enum { X=0, Y=1, };
+
+  float xf = u*(w-1);
+  float yf = v*(h-1);
+
+  int idx0[2] = { (int)floorf(xf), (int)floorf(yf), };
+  int idx1[2] = { std::min(idx0[X]+1,w-1), std::min(idx0[Y]+1,h-1), };
+
+  std::cout << idx0[0] << ',' << idx0[1] << " to " << idx1[0] << ',' << idx1[1] << '\n';
+
+  float xfrac = xf-idx0[X];
+  float yfrac = yf-idx0[Y];
+
+  // determine the triangle we are in:
+  // in the bottom/right triangle, u-coord "grows" faster,
+  // in the top/left triangle, v-coord "grows" faster:
+  int triID = (xfrac >= yfrac) ? 0 : 1;
+
+  float t0[3], t1[3];
+  t0[0] = input->GetTuple1(idx0[X]+w*idx0[Y]);
+  t0[1] = input->GetTuple1(idx1[X]+w*idx0[Y]);
+  t0[2] = input->GetTuple1(idx1[X]+w*idx1[Y]);
+
+  t1[0] = input->GetTuple1(idx0[X]+w*idx0[Y]);
+  t1[1] = input->GetTuple1(idx1[X]+w*idx1[Y]);
+  t1[2] = input->GetTuple1(idx0[X]+w*idx1[Y]);
+
+  return triID == 0 ? bary(t0[0],t0[1],t0[2],xfrac-yfrac,yfrac)
+                    : bary(t1[0],t1[1],t1[2],xfrac,yfrac-xfrac);
+}
+
+// Routine to scale given image data using triangle-barycentric interpolation.
+// This is required to retain the monotony guarantees of superarcs
+inline vtkSmartPointer<vtkImageData> scaleBarycentric(
+    vtkImageData *input, int newW, int newH)
+{
+  int oldDims[3];
+  input->GetDimensions(oldDims);
+  auto oldData = input->GetPointData()->GetScalars("MyScalars");
+
+  auto scalars = vtkSmartPointer<vtkFloatArray>::New();
+  scalars->SetName("MyScalars");
+  scalars->SetNumberOfComponents(1);
+  scalars->SetNumberOfTuples((size_t)newW*newH);
+  for (int y=0; y<newH; ++y) {
+    for (int x=0; x<newW; ++x) {
+      float u = x/(float(newW-1));
+      float v = y/(float(newH-1));
+      std::cout << "mapping " << x << ',' << y << " -> ";
+      float value = interpolateBarycentric(oldData,oldDims[0],oldDims[1],u,v);
+      size_t index = x+size_t(newW)*y;
+      scalars->SetValue(index, value);
+    }
+  }
+  auto output = vtkSmartPointer<vtkImageData>::New();
+  output->SetDimensions(newW, newH, 1);
+  output->GetPointData()->SetScalars(scalars);
+  //vtkIndent id;
+  //output->PrintSelf(std::cout, id);
+  return output;
+}
+
 struct AppState {
   vtkActor *actor{nullptr};
   vtkRenderer *renderer{nullptr};
@@ -221,7 +292,9 @@ int main(int argc, char **argv)
   reader->SetFileName(fileName.c_str());
   reader->Update();
 
-  vtkImageData *imgData = reader->GetOutput();
+  auto inputData = reader->GetOutput();
+//auto imgData = scaleBarycentric(inputData,900,800);
+  auto imgData = inputData;
   vtkDataArray* scalars = imgData->GetPointData()->GetScalars();
   g_appState.imgData = imgData;
 
