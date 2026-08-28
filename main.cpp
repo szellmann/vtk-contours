@@ -216,7 +216,7 @@ inline float interpolateBarycentric(vtkDataArray *input, int w, int h, float u, 
   int idx0[2] = { (int)floorf(xf), (int)floorf(yf), };
   int idx1[2] = { std::min(idx0[X]+1,w-1), std::min(idx0[Y]+1,h-1), };
 
-  std::cout << idx0[0] << ',' << idx0[1] << " to " << idx1[0] << ',' << idx1[1] << '\n';
+//std::cout << idx0[0] << ',' << idx0[1] << " to " << idx1[0] << ',' << idx1[1] << '\n';
 
   float xfrac = xf-idx0[X];
   float yfrac = yf-idx0[Y];
@@ -256,7 +256,7 @@ inline vtkSmartPointer<vtkImageData> scaleBarycentric(
     for (int x=0; x<newW; ++x) {
       float u = x/(float(newW-1));
       float v = y/(float(newH-1));
-      std::cout << "mapping " << x << ',' << y << " -> ";
+//    std::cout << "mapping " << x << ',' << y << " -> ";
       float value = interpolateBarycentric(oldData,oldDims[0],oldDims[1],u,v);
       size_t index = x+size_t(newW)*y;
       scalars->SetValue(index, value);
